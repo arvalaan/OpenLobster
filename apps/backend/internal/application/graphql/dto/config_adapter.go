@@ -93,7 +93,10 @@ func (a *ConfigUpdateAdapter) isProviderInputKey(k string) bool {
 func (a *ConfigUpdateAdapter) applyProviderKeys(input map[string]interface{}) {
 	provider, _ := input["provider"].(string)
 	if provider == "" {
-		provider = "ollama"
+		provider = viper.GetString("agent.provider")
+	}
+	if p, ok := input["provider"].(string); ok && p != "" {
+		viper.Set("agent.provider", p)
 	}
 	switch provider {
 	case "openrouter":
