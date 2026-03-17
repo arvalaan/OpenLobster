@@ -396,7 +396,7 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 				}
 				if h.messaging != nil {
 					holdMsg := models.NewMessage(input.ChannelID,
-						"Your access request has been sent to the administrator. Please wait for approval.",
+						fmt.Sprintf("Your access request has been sent to the administrator. Your pairing code is: %s\n\nPlease wait for approval.", code),
 					)
 					holdMsg.Role = "assistant"
 					if holdMsg.Metadata == nil {

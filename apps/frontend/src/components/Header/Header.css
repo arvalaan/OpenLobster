@@ -233,9 +233,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 8px 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
   transition: background var(--duration-micro) var(--ease-out);
-  cursor: default;
+  cursor: pointer;
 }
 
 .header__pairing-item:hover {

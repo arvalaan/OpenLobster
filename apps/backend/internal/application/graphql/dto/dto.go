@@ -173,8 +173,13 @@ type SendMessageResult struct {
 }
 
 type PairingSnapshot struct {
-	Code   string
-	Status string
+	Code             string
+	Status           string
+	ChannelID        string
+	ChannelType      string
+	PlatformUserName string
+	CreatedAt        string
+	ExpiresAt        string
 }
 
 type UserSnapshot struct {

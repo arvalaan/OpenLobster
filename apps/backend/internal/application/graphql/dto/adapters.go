@@ -240,7 +240,13 @@ func (a *PairingPortAdapter) ListActive(ctx context.Context) ([]PairingSnapshot,
 	}
 	out := make([]PairingSnapshot, len(list))
 	for i, p := range list {
-		out[i] = PairingSnapshot{Code: p.Code, Status: p.Status}
+		out[i] = PairingSnapshot{
+				Code:             p.Code,
+				Status:           p.Status,
+				ChannelID:        p.ChannelID,
+				ChannelType:      p.ChannelType,
+				PlatformUserName: p.PlatformUserName,
+			}
 	}
 	return out, nil
 }
