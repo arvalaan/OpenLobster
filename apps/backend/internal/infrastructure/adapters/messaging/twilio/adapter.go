@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	twilioclient "github.com/twilio/twilio-go"
+	twilioclient "github.com/twilio/twilio-go/client"
 	twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
 
 	"github.com/neirth/openlobster/internal/domain/models"
@@ -22,23 +22,24 @@ import (
 
 // Adapter implements ports.MessagingPort for the Twilio SMS/MMS platform.
 type Adapter struct {
-	accountSID   string
-	authToken    string
-	fromNumber   string
-	twilioClient *twilioclient.RestClient
+	accountSID string
+	authToken  string
+	fromNumber string
+	api        *twilioApi.ApiService
 }
 
-// NewAdapter creates a new Twilio adapter backed by the official twilio-go SDK.
+// NewAdapter creates a new Twilio adapter using only the messaging API sub-package.
 func NewAdapter(accountSID, authToken, fromNumber string) *Adapter {
-	client := twilioclient.NewRestClientWithParams(twilioclient.ClientParams{
-		Username: accountSID,
-		Password: authToken,
-	})
+	c := &twilioclient.Client{
+		Credentials: twilioclient.NewCredentials(accountSID, authToken),
+	}
+	c.SetAccountSid(accountSID)
+	api := twilioApi.NewApiServiceWithClient(c)
 	return &Adapter{
-		accountSID:   accountSID,
-		authToken:    authToken,
-		fromNumber:   fromNumber,
-		twilioClient: client,
+		accountSID: accountSID,
+		authToken:  authToken,
+		fromNumber: fromNumber,
+		api:        api,
 	}
 }
 
@@ -67,8 +68,7 @@ func (a *Adapter) SendMessage(ctx context.Context, msg *models.Message) error {
 	params.SetTo(msg.ChannelID)
 	params.SetFrom(a.fromNumber)
 	params.SetBody(msg.Content)
-	_, err := a.twilioClient.Api.CreateMessage(params)
-	if err != nil {
+	if _, err := a.api.CreateMessage(params); err != nil {
 		return fmt.Errorf("twilio send message: %w", err)
 	}
 	return nil
@@ -85,8 +85,7 @@ func (a *Adapter) SendMedia(ctx context.Context, media *ports.Media) error {
 	if media.URL != "" {
 		params.SetMediaUrl([]string{media.URL})
 	}
-	_, err := a.twilioClient.Api.CreateMessage(params)
-	if err != nil {
+	if _, err := a.api.CreateMessage(params); err != nil {
 		return fmt.Errorf("twilio send media: %w", err)
 	}
 	return nil

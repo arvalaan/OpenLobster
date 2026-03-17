@@ -1,12 +1,13 @@
 // openlobster — autonomous messaging agent daemon.
 //
-// Usage: openlobster <command> [flags]
+// Usage: openlobster [command] [flags]
 //
 // Commands:
 //
-//	serve    Start the HTTP server and all messaging adapters (default)
-//	migrate  Migrate an OpenClaw config file to OpenLobster format
 //	config   Read or write configuration keys in the YAML (respects encryption)
+//  daemon   Tool for install daemon services in the user folder
+//	migrate  Migrate an OpenClaw config file to OpenLobster format
+//	serve    Start the HTTP server and all messaging adapters (default)
 //	version  Print build version and exit
 //
 // # License
@@ -18,9 +19,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	cmdconfig "github.com/neirth/openlobster/cmd/openlobster/config"
+	cmddaemon "github.com/neirth/openlobster/cmd/openlobster/daemon"
 	cmdmigrate "github.com/neirth/openlobster/cmd/openlobster/migrate"
-	"github.com/neirth/openlobster/cmd/openlobster/serve"
+	cmdserve "github.com/neirth/openlobster/cmd/openlobster/serve"
 	cmdversion "github.com/neirth/openlobster/cmd/openlobster/version"
 )
 
@@ -38,38 +42,27 @@ func main() {
 		os.Setenv("OLLAMA_AUTH", "false")
 	}
 
-	cmd := "serve"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+	root := &cobra.Command{
+		Use:           "openlobster",
+		Short:         "Autonomous messaging agent daemon",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		// Running "openlobster" with no subcommand starts the server.
+		Run: func(cmd *cobra.Command, args []string) {
+			cmdserve.New(version, public).Run()
+		},
 	}
 
-	switch cmd {
-	case "serve":
-		serve.New(version, public).Run()
-	case "migrate":
-		cmdmigrate.Run(os.Args[2:])
-	case "config":
-		cmdconfig.Run(os.Args[2:])
-	case "version", "--version", "-v":
-		cmdversion.Run(os.Stdout, version)
-	case "help", "--help", "-h":
-		printUsage(os.Stdout)
-	default:
-		fmt.Fprintf(os.Stderr, "openlobster: unknown command %q\n\n", cmd)
-		printUsage(os.Stderr)
+	root.AddCommand(
+		cmdconfig.Command(),
+		cmddaemon.Command(),
+		cmdmigrate.Command(),
+		cmdserve.Command(version, public),
+		cmdversion.Command(version),
+	)
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func printUsage(w *os.File) {
-	fmt.Fprintf(w, `Usage: openlobster <command> [options]
-
-Commands:
-  serve              Start the server (default when no command is given)
-  migrate [options]  Migrate an OpenClaw config to OpenLobster format
-  config  <get|set>  Read or write config keys (encryption-aware)
-  version            Print build version and exit
-
-Run "openlobster <command> -h" for per-command help.
-`)
 }
