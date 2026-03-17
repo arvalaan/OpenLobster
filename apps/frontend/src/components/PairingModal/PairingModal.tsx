@@ -181,9 +181,6 @@ const PairingModal: Component<PairingModalProps> = (props) => {
                     {t("pairing.displayNameHint")}
                   </p>
                 </div>
-                <p class="pm-hint">
-                  {t("pairing.newUserHint")}
-                </p>
               </Show>
             </div>
 

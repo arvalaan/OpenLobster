@@ -31,45 +31,38 @@ const BUILTIN_TOOLS: Array<{ key: 'browser' | 'terminal' | 'subagents' | 'memory
   { key: 'sessions',   icon: 'forum'         },
 ];
 
-/** Real tools exposed to the LLM per built-in capability. */
-const BUILTIN_TOOL_DETAILS: Record<string, Array<{ name: string; description: string }>> = {
-  browser: [
-    { name: 'browser_fetch',       description: 'Fetch and read the content of a web page' },
-    { name: 'browser_screenshot',  description: 'Take a screenshot of the current page' },
-    { name: 'browser_click',       description: 'Click a DOM element by CSS selector' },
-    { name: 'browser_fill_input',  description: 'Fill a form input field' },
-  ],
-  terminal: [
-    { name: 'terminal_exec',   description: 'Execute a command synchronously (blocks until complete)' },
-    { name: 'terminal_spawn',  description: 'Launch a process in background (non-blocking, master agent only)' },
-  ],
-  memory: [
-    { name: 'add_memory',     description: "Add a fact or piece of information to the agent's memory about the user" },
-    { name: 'search_memory',  description: "Search the agent's memory for similar information" },
-  ],
-  subagents: [
-    { name: 'subagent_spawn',  description: 'Spawn a sub-agent with a specific task (master agent only)' },
-    { name: 'task_add',        description: 'Add a task to the heartbeat task queue' },
-    { name: 'task_done',       description: 'Mark a task as completed' },
-    { name: 'task_list',       description: 'List pending tasks in the heartbeat queue' },
-  ],
-  filesystem: [
-    { name: 'read_file',     description: 'Read the contents of a file from the filesystem' },
-    { name: 'write_file',    description: 'Write content to a file (creates or overwrites)' },
-    { name: 'edit_file',     description: 'Apply a targeted edit to a file' },
-    { name: 'list_content',  description: 'List directory contents' },
-  ],
-  sessions: [
-    { name: 'send_message',    description: 'Send a message to another channel' },
-    { name: 'send_file',       description: 'Send a file to a channel' },
-    { name: 'schedule_cron',   description: 'Create or modify a cron job' },
-  ],
+/** Maps each internal tool name to its capability category for grouping. */
+const BUILTIN_TOOL_CATEGORY: Record<string, string> = {
+  browser_fetch:             'browser',
+  browser_screenshot:        'browser',
+  browser_click:             'browser',
+  browser_fill_input:        'browser',
+  terminal_exec:             'terminal',
+  terminal_spawn:            'terminal',
+  terminal_list_processes:   'terminal',
+  terminal_get_output:       'terminal',
+  add_memory:                'memory',
+  search_memory:             'memory',
+  add_user_relation:         'memory',
+  set_user_property:         'memory',
+  edit_memory_node:          'memory',
+  delete_memory_node:        'memory',
+  subagent_spawn:            'subagents',
+  task_add:                  'subagents',
+  task_done:                 'subagents',
+  task_list:                 'subagents',
+  read_file:                 'filesystem',
+  write_file:                'filesystem',
+  edit_file:                 'filesystem',
+  list_content:              'filesystem',
+  send_message:              'sessions',
+  send_file:                 'sessions',
+  schedule_cron:             'sessions',
+  list_conversations:        'sessions',
+  get_conversation_messages: 'sessions',
+  load_skill:                'sessions',
+  read_skill_file:           'sessions',
 };
-
-/** Set of built-in tool names — used to avoid duplicating internal tools in MCP groups. */
-const BUILTIN_TOOL_NAMES = new Set(
-  Object.values(BUILTIN_TOOL_DETAILS).flatMap(tools => tools.map(t => t.name))
-);
 
 /**
  * Returns the favicon URL for an MCP server URL via the Google favicon service.
@@ -244,6 +237,19 @@ const McpsView: Component = () => {
       return next;
     });
   };
+  /** Internal tools indexed by capability category, derived from the API response. */
+  const internalToolsByCategory = createMemo(() => {
+    const map = new Map<string, Array<{ name: string; description?: string | null }>>();
+    for (const tool of mcpTools.data ?? []) {
+      if (tool.serverName) continue;
+      const category = BUILTIN_TOOL_CATEGORY[tool.name];
+      if (!category) continue;
+      if (!map.has(category)) map.set(category, []);
+      map.get(category)!.push(tool);
+    }
+    return map;
+  });
+
   /** Set of tools explicitly denied for the selected user.
    * Everything else is allowed by default. */
   const deniedTools = createMemo(() => {
@@ -254,33 +260,39 @@ const McpsView: Component = () => {
     return set;
   });
   /** Tools grouped by serverName for the permissions matrix.
-   * Built-in capability tools are prepended as groups. MCP tools are grouped by server. */
+   * Internal tools come from the API (serverName == null) and are grouped by capability category.
+   * MCP tools are grouped by their serverName. */
   const groupedTools = createMemo(() => {
     type ToolItem = NonNullable<typeof mcpTools.data>[number];
     const groups = new Map<string, ToolItem[]>();
 
-    // Prepend built-in capability groups (single source of truth for internal tools).
+    // Initialise built-in capability groups (order preserved from BUILTIN_TOOLS).
     for (const cap of BUILTIN_TOOLS) {
-      const tools = BUILTIN_TOOL_DETAILS[cap.key] ?? [];
-      if (tools.length > 0) {
-        const groupName = `__builtin__:${cap.key}`;
-        groups.set(groupName, tools.map(tool => ({
-          name: tool.name,
-          serverName: groupName,
-          description: tool.description,
-        })));
+      groups.set(`__builtin__:${cap.key}`, []);
+    }
+
+    for (const tool of mcpTools.data ?? []) {
+      if (!tool.serverName) {
+        // Internal tool: group by capability category using the mapping table.
+        const category = BUILTIN_TOOL_CATEGORY[tool.name];
+        if (category) {
+          const groupKey = `__builtin__:${category}`;
+          if (!groups.has(groupKey)) groups.set(groupKey, []);
+          groups.get(groupKey)!.push({ ...tool, serverName: groupKey });
+        }
+      } else {
+        // MCP server tool: group by server name.
+        if (!groups.has(tool.serverName)) groups.set(tool.serverName, []);
+        groups.get(tool.serverName)!.push(tool);
       }
     }
 
-    // Append MCP server tool groups. Skip internal tools (already in built-in).
-    // Use serverName from API, or parse from "serverName:toolName" format.
-    for (const tool of mcpTools.data ?? []) {
-      if (BUILTIN_TOOL_NAMES.has(tool.name)) continue; // avoid duplication
-      const serverKey = tool.serverName ?? (tool.name.includes(':') ? tool.name.split(':')[0]! : null);
-      if (!serverKey) continue; // skip tools we cannot group (no "unknown")
-      if (!groups.has(serverKey)) groups.set(serverKey, []);
-      groups.get(serverKey)!.push(tool);
+    // Remove empty built-in groups (capability disabled or no tools registered).
+    for (const cap of BUILTIN_TOOLS) {
+      const key = `__builtin__:${cap.key}`;
+      if (groups.get(key)?.length === 0) groups.delete(key);
     }
+
     return groups;
   });
   const setPermission = createMutation(() => ({
@@ -673,7 +685,7 @@ const McpsView: Component = () => {
           <Show when={selectedBuiltin()}>
             {(cap) => {
               const globallyEnabled = () => !!(config.data?.capabilities?.[cap().key]);
-              const tools = BUILTIN_TOOL_DETAILS[cap().key] ?? [];
+              const tools = () => internalToolsByCategory().get(cap().key) ?? [];
               return (
                 <div class="modal-form">
                   <div class="modal-section">
@@ -690,7 +702,7 @@ const McpsView: Component = () => {
                   <div class="modal-section">
                     <h4 class="section-title">{t('mcps.cap.toolsExposed')}</h4>
                     <ul class="server-tools__list">
-                      <For each={tools} fallback={<p class="section-text">{t('mcps.noTools')}</p>}>
+                      <For each={tools()} fallback={<p class="section-text">{t('mcps.noTools')}</p>}>
                         {(tool) => (
                           <li class="server-tools__item">
                             <span class="server-tools__item-name">{tool.name}</span>
