@@ -34,6 +34,11 @@ type App struct {
 	Version  string
 	PublicFS fs.FS
 
+	// CLI flag overrides (set by Command before calling Run)
+	FlagHost    string
+	FlagPort    int
+	FlagDataDir string
+
 	// Config
 	CfgPath    string
 	CfgPathAbs string

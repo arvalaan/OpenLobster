@@ -890,6 +890,9 @@ losing your purpose. Respond in the same user language always.
 	if agentCtx.BootstrapMD != "" {
 		b.WriteString("\n" + agentCtx.BootstrapMD)
 	}
+	if agentCtx.MemoryMD != "" {
+		b.WriteString("\n" + agentCtx.MemoryMD)
+	}
 
 	if len(agentCtx.SkillsCatalog) > 0 {
 		b.WriteString("\n## Skills\n\n")

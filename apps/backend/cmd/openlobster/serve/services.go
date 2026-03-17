@@ -134,6 +134,7 @@ func (a *App) initServices() {
 		filepath.Join(cfg.Workspace.Path, "SOUL.md"),
 		filepath.Join(cfg.Workspace.Path, "IDENTITY.md"),
 		filepath.Join(cfg.Workspace.Path, "BOOTSTRAP.md"),
+		filepath.Join(cfg.Workspace.Path, "MEMORY.md"),
 		a.MemoryAdapter,
 		a.ToolRegistry,
 	)

@@ -5,14 +5,57 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/viper"
+
 	"github.com/neirth/openlobster/internal/infrastructure/config"
 	"github.com/neirth/openlobster/internal/infrastructure/logging"
 )
 
 // initConfig loads openlobster.yaml, validates it, creates required
-// directories (data/, logs/, workspace/) and initialises the logger.
+// subdirectories under BaseDir (data/, logs/, workspace/) and initialises
+// the logger.
+//
+// Priority for base_dir (highest to lowest):
+//  1. --data-dir CLI flag
+//  2. OPENLOBSTER_BASE_DIR environment variable  (handled by viper AutomaticEnv)
+//  3. base_dir key in openlobster.yaml
+//  4. Default: $HOME/.openlobster  (set in config.setDefaults)
+//
+// Priority for host/port follows the same pattern via existing
+// OPENLOBSTER_GRAPHQL_HOST / OPENLOBSTER_GRAPHQL_PORT env vars and
+// --host / --port CLI flags.
 func (a *App) initConfig() {
-	a.CfgPath = "data/openlobster.yaml"
+	// CLI flags have highest priority: inject into viper before Load so they
+	// win over YAML, env vars, and defaults.
+	if a.FlagDataDir != "" {
+		viper.Set("base_dir", a.FlagDataDir)
+	}
+	if a.FlagHost != "" {
+		viper.Set("graphql.host", a.FlagHost)
+	}
+	if a.FlagPort != 0 {
+		viper.Set("graphql.port", a.FlagPort)
+	}
+
+	// Resolve base_dir and change the process working directory to it.
+	// From this point on, every relative path in config, DB DSN, workspace
+	// files, etc. resolves against base_dir without any manual rebasing.
+	baseDir := viper.GetString("base_dir")
+	if baseDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("failed to resolve home directory: %v", err)
+		}
+		baseDir = filepath.Join(home, ".openlobster")
+	}
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		log.Fatalf("failed to create base directory %s: %v", baseDir, err)
+	}
+	if err := os.Chdir(baseDir); err != nil {
+		log.Fatalf("failed to set working directory to %s: %v", baseDir, err)
+	}
+
+	a.CfgPath = "openlobster.yaml"
 	if v := os.Getenv("OPENLOBSTER_CONFIG"); v != "" {
 		a.CfgPath = v
 	}
@@ -31,18 +74,14 @@ func (a *App) initConfig() {
 	}
 	a.Cfg = cfg
 
+	// Create the standard subdirectories (relative to the new working dir).
 	for _, dir := range []string{"data", "logs", "workspace"} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Fatalf("failed to create %s directory: %v", dir, err)
+			log.Fatalf("failed to create directory %s: %v", dir, err)
 		}
 	}
 
 	logFile := filepath.Join(cfg.Logging.Path, "openlobster.log")
-	if !filepath.IsAbs(logFile) {
-		if abs, err := filepath.Abs(logFile); err == nil {
-			logFile = abs
-		}
-	}
 	if err := logging.Init(logFile, cfg.Logging.Level); err != nil {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}

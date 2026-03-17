@@ -159,6 +159,10 @@ func (c *Config) Validate() error {
 }
 
 type Config struct {
+	// BaseDir is the root directory for all runtime data (data/, logs/,
+	// workspace/). Configurable via base_dir in YAML, OPENLOBSTER_BASE_DIR
+	// env var, or the --data-dir CLI flag. Defaults to $HOME/.openlobster.
+	BaseDir     string            `mapstructure:"base_dir"`
 	Agent       AgentConfig       `mapstructure:"agent"`
 	Scheduler   SchedulerConfig   `mapstructure:"heartbeat"` // yaml key kept for backwards compat
 	Database    DatabaseConfig    `mapstructure:"database"`
@@ -174,6 +178,7 @@ type Config struct {
 	Workspace   WorkspaceConfig   `mapstructure:"workspace"`
 	Wizard      WizardConfig      `mapstructure:"wizard"`
 }
+
 
 // WizardConfig holds first-boot wizard state (server-side).
 type WizardConfig struct {
@@ -394,6 +399,8 @@ type WorkspaceConfig struct {
 }
 
 func setDefaults() {
+	home, _ := os.UserHomeDir()
+	viper.SetDefault("base_dir", filepath.Join(home, ".openlobster"))
 	viper.SetDefault("heartbeat.interval", "30s")
 	viper.SetDefault("heartbeat.enabled", true)
 	viper.SetDefault("heartbeat.memory_interval", "4h")
