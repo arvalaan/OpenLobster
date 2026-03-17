@@ -188,6 +188,7 @@ type WizardConfig struct {
 type AgentConfig struct {
 	Name         string             `mapstructure:"name"`
 	SystemPrompt string             `mapstructure:"system_prompt"`
+	Provider     string             `mapstructure:"provider"`
 	Capabilities CapabilitiesConfig `mapstructure:"capabilities"`
 }
 
