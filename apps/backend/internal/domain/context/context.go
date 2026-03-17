@@ -23,6 +23,7 @@ type AgentLLMContext struct {
 	SoulMD        string
 	IdentityMD    string
 	BootstrapMD   string
+	MemoryMD      string
 	MCPs          []MCPResource
 	Tools         []Tool
 	UserMemory    string
@@ -54,6 +55,7 @@ type contextInjector struct {
 	soulPath      string
 	identityPath  string
 	bootstrapPath string
+	memoryPath    string
 	memoryPort    ports.MemoryPort
 	toolRegistry  *mcp.ToolRegistry
 }
@@ -64,6 +66,7 @@ func NewContextInjector(
 	soulPath string,
 	identityPath string,
 	bootstrapPath string,
+	memoryPath string,
 	memoryPort ports.MemoryPort,
 	toolRegistry *mcp.ToolRegistry,
 ) ContextInjector {
@@ -73,6 +76,7 @@ func NewContextInjector(
 		soulPath:      soulPath,
 		identityPath:  identityPath,
 		bootstrapPath: bootstrapPath,
+		memoryPath:    memoryPath,
 		memoryPort:    memoryPort,
 		toolRegistry:  toolRegistry,
 	}
@@ -97,6 +101,10 @@ func (c *contextInjector) BuildContext(ctx context.Context, userID string, sessi
 	agentCtx.BootstrapMD, err = c.loadSystemFile(c.bootstrapPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load bootstrap file: %w", err)
+	}
+	agentCtx.MemoryMD, err = c.loadSystemFile(c.memoryPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load memory file: %w", err)
 	}
 
 	agentCtx.MCPs = c.getMCPs()
