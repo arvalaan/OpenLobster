@@ -761,7 +761,17 @@ func ToolPermissionsToGenerated(list []dto.ToolPermissionRecord) []*generated.To
 }
 
 func PairingToPendingPairing(p dto.PairingSnapshot) *generated.PendingPairing {
-	return &generated.PendingPairing{Code: p.Code, Status: p.Status}
+	out := &generated.PendingPairing{Code: p.Code, Status: p.Status}
+	if p.ChannelID != "" {
+		out.ChannelID = StrPtr(p.ChannelID)
+	}
+	if p.ChannelType != "" {
+		out.ChannelType = StrPtr(p.ChannelType)
+	}
+	if p.PlatformUserName != "" {
+		out.PlatformUserName = StrPtr(p.PlatformUserName)
+	}
+	return out
 }
 
 func PairingsToGenerated(list []dto.PairingSnapshot) []*generated.PendingPairing {
