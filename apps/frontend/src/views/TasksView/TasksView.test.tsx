@@ -260,9 +260,3 @@ describe("TasksView Component", () => {
   });
 });
 
-function getByText_helper(container: HTMLElement, text: string): HTMLElement {
-  const all = Array.from(container.querySelectorAll("*")) as HTMLElement[];
-  const el = all.find((el) => el.textContent?.trim() === text && el.children.length === 0);
-  if (!el) throw new Error(`Text "${text}" not found`);
-  return el;
-}

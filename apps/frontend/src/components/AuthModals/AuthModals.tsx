@@ -7,11 +7,26 @@ import {
   createSubscriptionManager,
   type PairingRequestEvent,
 } from "@openlobster/ui/hooks";
-import { client } from "../../graphql/client";
+import { client, GRAPHQL_ENDPOINT } from "../../graphql/client";
 import { useWsConnection } from "../../stores/wsStore";
-import { needsAuth } from "../../stores/authStore";
+import { needsAuth, getStoredToken } from "../../stores/authStore";
+import { pendingPairingsQueue, setPendingPairingsQueue } from "../../stores/pairingStore";
 import AccessTokenModal from "../AccessTokenModal/AccessTokenModal";
 import PairingModal from "../PairingModal/PairingModal";
+
+const PENDING_PAIRINGS_QUERY = `
+  query GetPendingPairings {
+    pendingPairings {
+      code
+      channelID
+      channelType
+      platformUserName
+      status
+      createdAt
+      expiresAt
+    }
+  }
+`;
 
 export interface AuthModalsProps {
   children: JSX.Element;
@@ -26,6 +41,48 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
 
   let subscription: ReturnType<typeof subscriptionMgr.subscribe> | null = null;
 
+  const fetchPendingPairings = async () => {
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const token = getStoredToken();
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(GRAPHQL_ENDPOINT, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: PENDING_PAIRINGS_QUERY }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const list: Array<{
+        code: string;
+        channelID: string;
+        channelType: string;
+        platformUserName: string;
+        status: string;
+        createdAt: string;
+        expiresAt: string;
+      }> = data?.data?.pendingPairings ?? [];
+
+      const pendingOnly = list.filter((p) => p.status === "pending");
+      const asEvents: PairingRequestEvent[] = pendingOnly.map((p) => ({
+        requestID: p.code,
+        code: p.code,
+        channelID: p.channelID,
+        channelType: p.channelType,
+        displayName: p.platformUserName,
+        timestamp: p.createdAt,
+      }));
+
+      if (asEvents.length > 0) {
+        setPendingPairingsQueue(asEvents);
+        setPairingRequest(asEvents[0]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch pending pairings:", e);
+    }
+  };
+
   onMount(() => {
     // Probe the backend immediately. If it responds with 401 the client
     // wrapper sets needsAuth(true) and the AccessTokenModal appears.
@@ -39,11 +96,17 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
     subscription = subscriptionMgr.subscribe({
       onPairingRequest: (event) => {
         console.log("Pairing request received:", event);
-        setPairingRequest(event);
+        setPendingPairingsQueue((prev) => {
+          const exists = prev.some((p) => p.requestID === event.requestID);
+          return exists ? prev : [...prev, event];
+        });
+        setPairingRequest((cur) => cur ?? event);
       },
       onConnected: () => {
         wsConnection.setConnected(true);
         console.log("Subscription connected");
+        // Fetch pairings that arrived while disconnected
+        void fetchPendingPairings();
       },
       onDisconnected: () => {
         wsConnection.setConnected(false);
@@ -58,6 +121,14 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
   onCleanup(() => {
     subscription?.disconnect();
   });
+
+  const dismissCurrentPairing = (requestID: string) => {
+    setPendingPairingsQueue((prev) => prev.filter((p) => p.requestID !== requestID));
+    setPairingRequest(() => {
+      const remaining = pendingPairingsQueue().filter((p) => p.requestID !== requestID);
+      return remaining.length > 0 ? remaining[0] : null;
+    });
+  };
 
   const handlePairingApprove = async (requestID: string, userID: string, displayName: string) => {
     console.log("Approve pairing:", requestID, "userID:", userID, "displayName:", displayName);
@@ -79,7 +150,7 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
     } catch (e) {
       console.error("Failed to approve pairing:", e);
     }
-    setPairingRequest(null);
+    dismissCurrentPairing(requestID);
   };
 
   const handlePairingDeny = async (requestID: string, reason?: string) => {
@@ -100,7 +171,7 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
     } catch (e) {
       console.error("Failed to deny pairing:", e);
     }
-    setPairingRequest(null);
+    dismissCurrentPairing(requestID);
   };
 
   return (

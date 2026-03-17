@@ -6,19 +6,19 @@
  * Layout:
  *   Left  — smart_toy icon + OPENLOBSTER wordmark
  *   Center — tab navigation (absolutely centered)
- *   Right  — status dot + agent name + version + avatar
+ *   Right  — status dot + agent name + version + pending pairings button + avatar
  *
  * @param activeTab - The currently active tab identifier
  */
 
-import { For, createMemo } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import type { Component } from "solid-js";
 import type { GraphQLClient } from "graphql-request";
 import { A } from "@solidjs/router";
 import { useAgent } from "@openlobster/ui/hooks";
 import { t } from "../../App";
-import { effectiveTheme, setTheme } from "../../stores/themeStore";
 import { wsConnected } from "../../stores/wsStore";
+import { pendingPairingsQueue } from "../../stores/pairingStore";
 import "./Header.css";
 
 export type TabId =
@@ -55,6 +55,9 @@ const Header: Component<HeaderProps> = (props) => {
   const graphqlClient = props.graphqlClient;
   const agent = useAgent(graphqlClient as GraphQLClient);
   const tabs = createMemo(() => getTabs());
+  const [pairingDropdownOpen, setPairingDropdownOpen] = createSignal(false);
+
+  const pendingCount = createMemo(() => pendingPairingsQueue().length);
 
   return (
     <header class="header">
@@ -94,28 +97,46 @@ const Header: Component<HeaderProps> = (props) => {
         />
         <span class="header__agent-name">{agent.data?.name ?? t("header.defaultAgentName")}</span>
         <span class="header__version">v{agent.data?.version ?? "0.1.0"}</span>
-        <div class="header__theme" role="group" aria-label={t("header.themeLabel")}>
-          <button
-            type="button"
-            class="header__theme-btn"
-            classList={{ "header__theme-btn--active": effectiveTheme() === "light" }}
-            onClick={() => setTheme("light")}
-            aria-label={t("header.themeLight")}
-            title={t("header.themeLight")}
-          >
-            <span class="material-symbols-outlined" aria-hidden={true}>light_mode</span>
-          </button>
-          <button
-            type="button"
-            class="header__theme-btn"
-            classList={{ "header__theme-btn--active": effectiveTheme() === "dark" }}
-            onClick={() => setTheme("dark")}
-            aria-label={t("header.themeDark")}
-            title={t("header.themeDark")}
-          >
-            <span class="material-symbols-outlined" aria-hidden={true}>dark_mode</span>
-          </button>
-        </div>
+
+        {/* Pending pairing requests button */}
+        <Show when={pendingCount() > 0}>
+          <div class="header__pairing-wrap">
+            <button
+              type="button"
+              class="header__pairing-btn"
+              classList={{ "header__pairing-btn--open": pairingDropdownOpen() }}
+              onClick={() => setPairingDropdownOpen((v) => !v)}
+              aria-label={t("header.pendingPairings")}
+              title={t("header.pendingPairings")}
+            >
+              <span class="material-symbols-outlined" aria-hidden={true}>link</span>
+              <span class="header__pairing-badge">{pendingCount()}</span>
+            </button>
+            <Show when={pairingDropdownOpen()}>
+              <div class="header__pairing-dropdown" role="menu">
+                <p class="header__pairing-dropdown-title">{t("header.pendingPairingsTitle")}</p>
+                <For each={pendingPairingsQueue()}>
+                  {(req) => (
+                    <div class="header__pairing-item" role="menuitem">
+                      <span class="material-symbols-outlined header__pairing-item-icon">
+                        {req.channelType === "telegram" ? "send"
+                          : req.channelType === "discord" ? "forum"
+                          : req.channelType === "whatsapp" ? "chat"
+                          : req.channelType === "twilio" ? "phone"
+                          : "devices"}
+                      </span>
+                      <span class="header__pairing-item-name">
+                        {req.displayName || req.channelID}
+                      </span>
+                      <span class="header__pairing-item-channel">{req.channelType}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
+
         <span class="header__avatar">
           <span
             class="material-symbols-outlined"
