@@ -18,7 +18,7 @@ import { A } from "@solidjs/router";
 import { useAgent } from "@openlobster/ui/hooks";
 import { t } from "../../App";
 import { wsConnected } from "../../stores/wsStore";
-import { pendingPairingsQueue } from "../../stores/pairingStore";
+import { pendingPairingsQueue, openPairingRequest } from "../../stores/pairingStore";
 import "./Header.css";
 
 export type TabId =
@@ -117,7 +117,15 @@ const Header: Component<HeaderProps> = (props) => {
                 <p class="header__pairing-dropdown-title">{t("header.pendingPairingsTitle")}</p>
                 <For each={pendingPairingsQueue()}>
                   {(req) => (
-                    <div class="header__pairing-item" role="menuitem">
+                    <button
+                      type="button"
+                      class="header__pairing-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setPairingDropdownOpen(false);
+                        openPairingRequest(req);
+                      }}
+                    >
                       <span class="material-symbols-outlined header__pairing-item-icon">
                         {req.channelType === "telegram" ? "send"
                           : req.channelType === "discord" ? "forum"
@@ -126,10 +134,10 @@ const Header: Component<HeaderProps> = (props) => {
                           : "devices"}
                       </span>
                       <span class="header__pairing-item-name">
-                        {req.displayName || req.channelID}
+                        {req.displayName || req.channelID || req.requestID}
                       </span>
                       <span class="header__pairing-item-channel">{req.channelType}</span>
-                    </div>
+                    </button>
                   )}
                 </For>
               </div>

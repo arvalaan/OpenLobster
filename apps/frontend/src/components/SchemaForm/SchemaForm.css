@@ -13,6 +13,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: default;
+  transition: background var(--duration-micro) var(--ease-out);
+}
+
+.schema-field--row:hover {
+  background: var(--color-bg-elevated);
 }
 
 .schema-field--textarea {
