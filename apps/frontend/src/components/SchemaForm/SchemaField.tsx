@@ -134,10 +134,12 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
   return (
     <Show when={isVisible()}>
       <div class={fieldClass()}>
-        <div class="field-info">
-          <label class="field-label">{displayTitle()}</label>
-          <p class="field-description">{displayDescription()}</p>
-        </div>
+        <Show when={props.schema.type !== "object"}>
+          <div class="field-info">
+            <label class="field-label">{displayTitle()}</label>
+            <p class="field-description">{displayDescription()}</p>
+          </div>
+        </Show>
 
         {/* Boolean / Toggle */}
         <Show when={props.schema.type === "boolean"}>

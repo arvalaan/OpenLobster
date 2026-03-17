@@ -36,11 +36,6 @@ const plistTmpl = `<?xml version="1.0" encoding="UTF-8"?>
 	<string>{{ .LogOut }}</string>
 	<key>StandardErrorPath</key>
 	<string>{{ .LogErr }}</string>
-	<key>EnvironmentVariables</key>
-	<dict>
-		<key>OLLAMA_AUTH</key>
-		<string>false</string>
-	</dict>
 </dict>
 </plist>
 `
