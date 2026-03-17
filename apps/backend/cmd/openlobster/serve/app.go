@@ -1,6 +1,6 @@
-// Package appinit wires all openlobster components and manages the
-// application lifecycle. main.go calls New(...).Run() and nothing else.
-package appinit
+// Package serve wires all openlobster components and manages the
+// application lifecycle. Called from the "serve" subcommand.
+package serve
 
 import (
 	"context"
