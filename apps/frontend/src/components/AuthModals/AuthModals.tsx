@@ -10,7 +10,7 @@ import {
 import { client, GRAPHQL_ENDPOINT } from "../../graphql/client";
 import { useWsConnection } from "../../stores/wsStore";
 import { needsAuth, getStoredToken } from "../../stores/authStore";
-import { pendingPairingsQueue, setPendingPairingsQueue } from "../../stores/pairingStore";
+import { pendingPairingsQueue, setPendingPairingsQueue, setOpenPairingRequestHandler } from "../../stores/pairingStore";
 import AccessTokenModal from "../AccessTokenModal/AccessTokenModal";
 import PairingModal from "../PairingModal/PairingModal";
 
@@ -76,7 +76,6 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
 
       if (asEvents.length > 0) {
         setPendingPairingsQueue(asEvents);
-        setPairingRequest(asEvents[0]);
       }
     } catch (e) {
       console.error("Failed to fetch pending pairings:", e);
@@ -84,6 +83,9 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
   };
 
   onMount(() => {
+    // Register the handler so Header can open the modal for a specific request.
+    setOpenPairingRequestHandler((req) => setPairingRequest(req));
+
     // Probe the backend immediately. If it responds with 401 the client
     // wrapper sets needsAuth(true) and the AccessTokenModal appears.
     // If a token was saved in a previous session it will be sent automatically.
