@@ -78,7 +78,7 @@ pnpm build --filter=@openlobster/frontend
 pnpm build
 
 # Run
-./dist/openlobsterd
+./dist/openlobster
 ```
 
 The web dashboard will be at `http://127.0.0.1:8080`. On first launch the setup wizard walks you through the essential config.

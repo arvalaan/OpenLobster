@@ -8,73 +8,73 @@
 // The config file path is resolved from $OPENLOBSTER_CONFIG or the default
 // data/openlobster.yaml. Both encrypted (OLENC1 prefix) and plain YAML files
 // are supported transparently.
+//
+// # License
+// See LICENSE in the root of the repository.
 package config
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/neirth/openlobster/internal/infrastructure/config"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-// Run is the entry point for the "config" subcommand.
-// args contains everything after "config" in os.Args.
-func Run(args []string) {
-	fs := flag.NewFlagSet("config", flag.ContinueOnError)
-	cfgPath := fs.String("config", defaultCfgPath(), "path to openlobster.yaml")
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, `Usage: openlobster config <get|set> [options] ...
+// Command returns the cobra command tree for the "config" subcommand.
+func Command() *cobra.Command {
+	var cfgPath string
 
-Subcommands:
-  get <key> [<key> ...]              Print one or more config values
-  set <key> <value> [<key> <value>]  Write one or more config values
-
-Options:
-`)
-		fs.PrintDefaults()
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Read or write configuration keys (encryption-aware)",
+		Long: `Read or write keys in the OpenLobster YAML config file.
+Both plain and encrypted (OLENC1 prefix) files are supported transparently.`,
 	}
 
-	if len(args) == 0 {
-		fs.Usage()
-		os.Exit(1)
-	}
+	cmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfgPath(), "path to openlobster.yaml")
 
-	sub := args[0]
-	// Parse flags after the subcommand name.
-	if err := fs.Parse(args[1:]); err != nil {
-		os.Exit(1)
-	}
-	rest := fs.Args()
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "get <key> [<key> ...]",
+			Short: "Print one or more config values",
+			Args:  cobra.MinimumNArgs(1),
+			Run: func(cmd *cobra.Command, args []string) {
+				abs, err := filepath.Abs(cfgPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "config: cannot resolve path %q: %v\n", cfgPath, err)
+					os.Exit(1)
+				}
+				runGet(abs, args)
+			},
+		},
+		&cobra.Command{
+			Use:   "set <key> <value> [<key> <value> ...]",
+			Short: "Write one or more config values",
+			Args:  cobra.MinimumNArgs(2),
+			Run: func(cmd *cobra.Command, args []string) {
+				if len(args)%2 != 0 {
+					fmt.Fprintln(os.Stderr, "config set: arguments must be <key> <value> pairs")
+					os.Exit(1)
+				}
+				abs, err := filepath.Abs(cfgPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "config: cannot resolve path %q: %v\n", cfgPath, err)
+					os.Exit(1)
+				}
+				runSet(abs, args)
+			},
+		},
+	)
 
-	abs, err := filepath.Abs(*cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: cannot resolve path %q: %v\n", *cfgPath, err)
-		os.Exit(1)
-	}
-
-	switch sub {
-	case "get":
-		runGet(abs, rest)
-	case "set":
-		runSet(abs, rest)
-	default:
-		fmt.Fprintf(os.Stderr, "config: unknown subcommand %q\n", sub)
-		fs.Usage()
-		os.Exit(1)
-	}
+	return cmd
 }
 
 // runGet prints the value of each requested key.
 func runGet(cfgPath string, keys []string) {
-	if len(keys) == 0 {
-		fmt.Fprintln(os.Stderr, "config get: at least one key required")
-		os.Exit(1)
-	}
-
 	v := loadViper(cfgPath)
 	for _, key := range keys {
 		val := v.Get(key)
@@ -89,11 +89,6 @@ func runGet(cfgPath string, keys []string) {
 // runSet writes key=value pairs to the config file.
 // Values are cast to the appropriate type (bool, int, float, string) by Viper.
 func runSet(cfgPath string, pairs []string) {
-	if len(pairs) == 0 || len(pairs)%2 != 0 {
-		fmt.Fprintln(os.Stderr, "config set: arguments must be <key> <value> pairs")
-		os.Exit(1)
-	}
-
 	v := loadViper(cfgPath)
 	for i := 0; i < len(pairs); i += 2 {
 		key, val := pairs[i], pairs[i+1]
