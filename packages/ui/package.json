@@ -27,21 +27,21 @@
   },
   "dependencies": {
     "graphql": "^16.13.1",
-    "graphql-request": "^7.1.0",
+    "graphql-request": "^7.4.0",
     "parse-prometheus-text-format": "^1.1.1",
-    "solid-js": "^1.8.17"
+    "solid-js": "^1.9.11"
   },
   "peerDependencies": {
     "@tanstack/solid-query": "^5.0.0"
   },
   "devDependencies": {
-    "@turbo/gen": "^2.0.4",
-    "@types/eslint": "^8.56.10",
-    "@types/node": "^25.3.5",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@turbo/gen": "^2.8.17",
+    "@types/eslint": "^8.56.12",
+    "@types/node": "^25.5.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^10.0.3",
-    "typescript": "^5.4.5",
+    "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   }
 }
