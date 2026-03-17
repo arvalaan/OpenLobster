@@ -513,3 +513,41 @@
   background: var(--color-bg-elevated);
   border-color: var(--color-accent);
 }
+
+/* ── Theme toggle in settings ───────────────────────────────── */
+
+.settings-theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+  background: transparent;
+  transition: color var(--duration-micro) var(--ease-out),
+              background var(--duration-micro) var(--ease-out);
+}
+
+.settings-theme-btn:hover {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+}
+
+.settings-theme-btn--active {
+  background: var(--color-bg-selected);
+  color: var(--color-text-primary);
+}
+
+.settings-theme-btn .material-symbols-outlined {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 0, 'wght' 400;
+}

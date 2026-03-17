@@ -13,6 +13,7 @@ import {
 } from "@openlobster/ui/graphql/queries";
 import { WRITE_SYSTEM_FILE_MUTATION } from "@openlobster/ui/graphql/mutations";
 import { GRAPHQL_ENDPOINT } from "../../graphql/client";
+import { effectiveTheme, setTheme } from "../../stores/themeStore";
 import AppShell from "../../components/AppShell";
 import "./SettingsView.css";
 
@@ -477,6 +478,43 @@ const SettingsView: Component = () => {
             </button>
           </div>
         </div>
+
+        {/* Client-side preferences — stored in localStorage, not sent to backend */}
+        <section class="settings-section">
+          <h2 class="section-title">{t("settings.group.clientPreferences")}</h2>
+          <div class="settings-list">
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">{t("settings.field.theme")}</span>
+                <p class="setting-description">{t("settings.field.themeDesc")}</p>
+              </div>
+              <div class="settings-theme-toggle" role="group" aria-label={t("settings.field.theme")}>
+                <button
+                  type="button"
+                  class="settings-theme-btn"
+                  classList={{ "settings-theme-btn--active": effectiveTheme() === "light" }}
+                  onClick={() => setTheme("light")}
+                  aria-label={t("header.themeLight")}
+                  title={t("header.themeLight")}
+                >
+                  <span class="material-symbols-outlined" aria-hidden={true}>light_mode</span>
+                  {t("header.themeLight")}
+                </button>
+                <button
+                  type="button"
+                  class="settings-theme-btn"
+                  classList={{ "settings-theme-btn--active": effectiveTheme() === "dark" }}
+                  onClick={() => setTheme("dark")}
+                  aria-label={t("header.themeDark")}
+                  title={t("header.themeDark")}
+                >
+                  <span class="material-symbols-outlined" aria-hidden={true}>dark_mode</span>
+                  {t("header.themeDark")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <Show when={!isLoading()}>
           {/* Render each configuration group */}

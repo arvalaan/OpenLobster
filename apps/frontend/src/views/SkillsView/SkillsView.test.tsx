@@ -139,11 +139,9 @@ describe("SkillsView Component", () => {
     const { container } = renderWithQueryClient(() => <SkillsView />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
-    let capturedOnload: (() => void) | null = null;
-    const mockFileReader = {
+    const mockFileReader: Record<string, any> = {
       readAsDataURL: vi.fn(),
-      set onload(fn: () => void) { capturedOnload = fn; },
-      get onload() { return capturedOnload; },
+      onload: null as (() => void) | null,
       result: "data:application/zip;base64,dGVzdGRhdGE=",
     };
     vi.stubGlobal("FileReader", vi.fn(() => mockFileReader));
@@ -153,7 +151,8 @@ describe("SkillsView Component", () => {
     fireEvent.change(fileInput);
 
     // simulate FileReader load completing
-    capturedOnload?.();
+    const onload = mockFileReader.onload as (() => void) | null;
+    if (onload) onload();
     // no error should be shown — import was invoked
     expect(container.querySelector(".skills-import-error")).toBeNull();
     vi.unstubAllGlobals();
@@ -163,11 +162,9 @@ describe("SkillsView Component", () => {
     const { container } = renderWithQueryClient(() => <SkillsView />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
-    let capturedOnload: (() => void) | null = null;
-    const mockFileReader = {
+    const mockFileReader: Record<string, any> = {
       readAsDataURL: vi.fn(),
-      set onload(fn: () => void) { capturedOnload = fn; },
-      get onload() { return capturedOnload; },
+      onload: null as (() => void) | null,
       result: "data:application/zip;base64,",
     };
     vi.stubGlobal("FileReader", vi.fn(() => mockFileReader));
@@ -175,7 +172,9 @@ describe("SkillsView Component", () => {
     const file = new File([""], "empty.zip", { type: "application/zip" });
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
-    capturedOnload?.();
+
+    const onload = mockFileReader.onload as (() => void) | null;
+    if (onload) onload();
 
     expect(container.querySelector(".skills-import-error")).toBeTruthy();
     vi.unstubAllGlobals();
