@@ -42,6 +42,3 @@ Provide a link to a minimal reproduction repository or a gist with commands.
 
 Any other details that might help (recent configuration changes, plugins enabled, MCP servers connected, memory backend).
 
----
-
-ES (breve): Describe el fallo, pasos para reproducirlo y adjunta logs; no incluyas secretos.

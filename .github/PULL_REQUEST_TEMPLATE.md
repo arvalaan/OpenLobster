@@ -1,9 +1,3 @@
-<!--
-Please fill out this template to help reviewers quickly understand
-what the PR changes and how to validate it. Project documentation
-is English-first; a short Spanish note is provided below.
--->
-
 ## Summary
 
 Provide a short description of the change and the reason for it.
@@ -47,9 +41,3 @@ Any special deployment steps, feature flags, or rollbacks.
 ## Notes for the reviewer
 
 - Highlight non-obvious design decisions, API changes, or migration steps.
-
----
-
-ES (resumen breve):
-
-Incluye una descripción corta en español si quieres; la plantilla principal debe permanecer en inglés para la documentación del proyecto.
