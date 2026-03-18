@@ -137,6 +137,24 @@ func (c *Config) Validate() error {
 		errs = append(errs, "at least one AI provider must be configured: providers.openai.api_key, providers.openrouter.api_key, providers.ollama.endpoint, providers.openaicompat (api_key + base_url), providers.anthropic.api_key, providers.docker_model_runner.endpoint, or providers.opencode.api_key")
 	}
 
+	// Mattermost: validate when enabled.
+	if c.Channels.Mattermost.Enabled {
+		if c.Channels.Mattermost.ServerURL == "" {
+			errs = append(errs, "channels.mattermost.server_url is required when mattermost is enabled")
+		}
+		if len(c.Channels.Mattermost.Profiles) == 0 {
+			errs = append(errs, "channels.mattermost.profiles must have at least one entry when mattermost is enabled")
+		}
+		for i, p := range c.Channels.Mattermost.Profiles {
+			if p.Name == "" {
+				errs = append(errs, fmt.Sprintf("channels.mattermost.profiles[%d].name is required", i))
+			}
+			if isPlaceholder(p.BotToken) {
+				errs = append(errs, fmt.Sprintf("channels.mattermost.profiles[%d].bot_token is required", i))
+			}
+		}
+	}
+
 	// Scheduler: interval must be positive when enabled.
 	if c.Scheduler.Enabled && c.Scheduler.Interval <= 0 {
 		errs = append(errs, "scheduler.interval must be a positive duration when scheduler.enabled is true")
@@ -321,11 +339,31 @@ type DockerModelRunnerConfig struct {
 }
 
 type ChannelsConfig struct {
-	Telegram TelegramConfig `mapstructure:"telegram"`
-	Discord  DiscordConfig  `mapstructure:"discord"`
-	WhatsApp WhatsAppConfig `mapstructure:"whatsapp"`
-	Twilio   TwilioConfig   `mapstructure:"twilio"`
-	Slack    SlackConfig    `mapstructure:"slack"`
+	Telegram   TelegramConfig   `mapstructure:"telegram"`
+	Discord    DiscordConfig    `mapstructure:"discord"`
+	WhatsApp   WhatsAppConfig   `mapstructure:"whatsapp"`
+	Twilio     TwilioConfig     `mapstructure:"twilio"`
+	Slack      SlackConfig      `mapstructure:"slack"`
+	Mattermost MattermostConfig `mapstructure:"mattermost"`
+}
+
+// MattermostConfig holds settings for the Mattermost adapter.
+// Each entry in Profiles maps to a separate bot account, each with its own
+// WebSocket connection and optional persona (system prompt override).
+type MattermostConfig struct {
+	Enabled   bool                   `mapstructure:"enabled"`
+	ServerURL string                 `mapstructure:"server_url"`
+	Profiles  []MattermostBotProfile `mapstructure:"profiles"`
+}
+
+// MattermostBotProfile represents a single Mattermost bot account / persona.
+type MattermostBotProfile struct {
+	// Name is used for @mention matching, registry key derivation, and logging.
+	Name string `mapstructure:"name"`
+	// BotToken is the Personal Access Token or bot account token.
+	BotToken string `mapstructure:"bot_token"`
+	// SystemPrompt overrides the global agent system prompt for this profile.
+	SystemPrompt string `mapstructure:"system_prompt"`
 }
 
 type TelegramConfig struct {
@@ -501,6 +539,8 @@ func setDefaults() {
 	viper.SetDefault("channels.slack.enabled", false)
 	viper.SetDefault("channels.slack.bot_token", "")
 	viper.SetDefault("channels.slack.app_token", "")
+	viper.SetDefault("channels.mattermost.enabled", false)
+	viper.SetDefault("channels.mattermost.server_url", "")
 	// Default agent name (shown in navbar)
 	viper.SetDefault("agent.name", "OpenLobster")
 	viper.SetDefault("agent.reasoning_level", "medium")
