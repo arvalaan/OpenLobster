@@ -7,17 +7,17 @@ import (
 	"github.com/neirth/openlobster/internal/domain/services/mcp"
 )
 
-// SubAgentAdapter adapta domainservices.SubAgentService a dto.SubAgentPort.
+// SubAgentAdapter bridges domain SubAgentService to dto.SubAgentPort.
 type SubAgentAdapter struct {
 	svc *services.SubAgentService
 }
 
-// NewSubAgentAdapter crea un adapter para el servicio de sub-agentes.
+// NewSubAgentAdapter builds an adapter for the sub-agent service.
 func NewSubAgentAdapter(svc *services.SubAgentService) *SubAgentAdapter {
 	return &SubAgentAdapter{svc: svc}
 }
 
-// List implementa SubAgentPort.List.
+// List implements SubAgentPort.List.
 func (a *SubAgentAdapter) List(ctx context.Context) ([]SubAgentSnapshot, error) {
 	list, err := a.svc.List(ctx)
 	if err != nil {
@@ -34,7 +34,7 @@ func (a *SubAgentAdapter) List(ctx context.Context) ([]SubAgentSnapshot, error) 
 	return out, nil
 }
 
-// Spawn implementa SubAgentPort.Spawn.
+// Spawn implements SubAgentPort.Spawn.
 func (a *SubAgentAdapter) Spawn(ctx context.Context, name, model, task string) (string, error) {
 	config := mcp.SubAgentConfig{Name: name, Model: model}
 	agent, err := a.svc.Spawn(ctx, config, task)
@@ -44,7 +44,7 @@ func (a *SubAgentAdapter) Spawn(ctx context.Context, name, model, task string) (
 	return agent.ID(), nil
 }
 
-// Kill implementa SubAgentPort.Kill.
+// Kill implements SubAgentPort.Kill.
 func (a *SubAgentAdapter) Kill(ctx context.Context, id string) error {
 	return a.svc.Kill(ctx, id)
 }

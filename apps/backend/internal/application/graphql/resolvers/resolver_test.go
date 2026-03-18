@@ -605,7 +605,7 @@ func TestMutationResolver_InitiateOAuth(t *testing.T) {
 
 func TestMutationResolver_ConnectMcp_DisconnectMcp(t *testing.T) {
 	deps := newTestDeps(nil)
-	deps.McpConnectPort = &mockMcpConnectPort{} // nil connectErr → éxito
+	deps.McpConnectPort = &mockMcpConnectPort{} // nil connectErr → success
 	r := NewResolver(deps)
 
 	tport, u := "stdio", "cmd://echo"
@@ -1347,7 +1347,7 @@ func (m *mockMCPServerRepo) ListAll(ctx context.Context) ([]dto.MCPServerRecord,
 	return m.servers, m.err
 }
 
-// mockMcpConnectPort implementa dto.McpConnectPort para tests.
+// mockMcpConnectPort implements dto.McpConnectPort for tests.
 type mockMcpConnectPort struct {
 	connectErr       error
 	disconnectErr    error

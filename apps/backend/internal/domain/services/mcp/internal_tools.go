@@ -45,7 +45,7 @@ const ContextKeyChannelType = contextKey("channel_type")
 
 type InternalTools struct {
 	Messaging           MessagingService
-	LastChannelResolver LastChannelResolver // optional: used when send_message gets user_id
+	LastChannelResolver LastChannelResolver // optional: send_message resolves user_name / Telegram username
 	Memory              MemoryService
 	Terminal            TerminalService
 	Browser             BrowserService
@@ -232,14 +232,16 @@ type SendMessageTool struct {
 func (t *SendMessageTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "send_message",
-		Description: "Send a message to a user. Use user_id to send to the last channel they used with the bot, or channel+channel_type for a specific destination.",
+		Description: "Send a message to a specific recipient. Use exactly one of: user_name (OpenLobster display name), username (handle stored in DB on user_channels — any platform), or channel+channel_type. Optional username_platform disambiguates when the same handle exists on several platforms. Never infer the recipient from who is asking.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"user_id": {"type": "string", "description": "Internal user UUID — sends to the last channel they used"},
-				"channel": {"type": "string", "description": "Platform channel ID (use with channel_type when not using user_id)"},
-				"channel_type": {"type": "string", "description": "Platform: telegram, discord, whatsapp, twilio (required when using channel)"},
-				"content": {"type": "string", "description": "Message content"}
+				"user_name": {"type": "string", "description": "Recipient display name (users.name). Sends to their last used channel."},
+				"username": {"type": "string", "description": "Recipient handle as stored in user_channels.username after pairing (Telegram/Discord/etc.)."},
+				"username_platform": {"type": "string", "description": "Optional with username: telegram, discord, whatsapp, twilio. If omitted, uses the most recently active binding for that username."},
+				"channel": {"type": "string", "description": "Platform chat id (e.g. group)"},
+				"channel_type": {"type": "string", "description": "telegram, discord, whatsapp, twilio — required with channel"},
+				"content": {"type": "string", "description": "Message text"}
 			},
 			"required": ["content"]
 		}`),
@@ -247,55 +249,90 @@ func (t *SendMessageTool) Definition() ToolDefinition {
 }
 
 func (t *SendMessageTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
-	userID, _ := params["user_id"].(string)
+	userName, _ := params["user_name"].(string)
+	storedUsername, _ := params["username"].(string)
+	usernamePlatform, _ := params["username_platform"].(string)
 	channel, _ := params["channel"].(string)
 	channelType, _ := params["channel_type"].(string)
 	content, _ := params["content"].(string)
 
-	if content == "" {
+	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("content is required")
 	}
 
-	if userID != "" {
+	userName = strings.TrimSpace(userName)
+	storedUsername = strings.TrimSpace(storedUsername)
+	usernamePlatform = strings.TrimSpace(usernamePlatform)
+	channel = strings.TrimSpace(channel)
+	channelType = strings.TrimSpace(channelType)
+
+	hasUN := userName != ""
+	hasSU := storedUsername != ""
+	if (channel != "") != (channelType != "") {
+		return nil, fmt.Errorf("channel and channel_type must be used together")
+	}
+	hasExplicit := channel != "" && channelType != ""
+
+	modes := 0
+	if hasUN {
+		modes++
+	}
+	if hasSU {
+		modes++
+	}
+	if hasExplicit {
+		modes++
+	}
+	if modes != 1 {
+		return nil, fmt.Errorf("specify exactly one recipient: user_name, username, or channel+channel_type")
+	}
+
+	if t.Tools.Messaging == nil {
+		return nil, fmt.Errorf("messaging adapter unavailable")
+	}
+
+	switch {
+	case hasUN:
 		if t.Tools.LastChannelResolver == nil {
-			return nil, fmt.Errorf("user_id not supported: no resolver configured")
+			return nil, fmt.Errorf("user_name routing not supported: no resolver configured")
 		}
-		ct, cid, err := t.Tools.LastChannelResolver.GetLastChannelForUser(ctx, userID)
+		nr, ok := t.Tools.LastChannelResolver.(UserNameResolver)
+		if !ok {
+			return nil, fmt.Errorf("user_name routing not supported")
+		}
+		uid, err := nr.GetUserIDByName(ctx, userName)
 		if err != nil {
-			return nil, fmt.Errorf("resolve last channel for user: %w", err)
+			return nil, fmt.Errorf("look up user %q: %w", userName, err)
+		}
+		if uid == "" {
+			return nil, fmt.Errorf("no user found with display name %q", userName)
+		}
+		ct, cid, err := t.Tools.LastChannelResolver.GetLastChannelForUser(ctx, uid)
+		if err != nil {
+			return nil, fmt.Errorf("resolve last channel for user %q: %w", userName, err)
 		}
 		if ct == "" || cid == "" {
-			// Try to resolve from context (tools invoked with current user id)
-			if u, ok := ctx.Value(ContextKeyUserID).(string); ok && u != "" {
-				// Treat ctx user value as platform channel id when resolver failed
-				channel = u
-			} else {
-				// Attempt to cast resolver to full UserChannelRepositoryPort to fetch display name
-				if repo, ok := t.Tools.LastChannelResolver.(ports.UserChannelRepositoryPort); ok {
-					if dn, derr := repo.GetDisplayNameByUserID(ctx, userID); derr == nil && dn != "" {
-						return nil, fmt.Errorf("no channel found for user %s (display_name=%s)", userID, dn)
-					}
-				}
-				return nil, fmt.Errorf("no channel found for user %s", userID)
+			return nil, fmt.Errorf("no channel found for user %q — they must interact with the bot at least once", userName)
+		}
+		channelType, channel = ct, cid
+
+	case hasSU:
+		repo, ok := t.Tools.LastChannelResolver.(ports.UserChannelRepositoryPort)
+		if !ok {
+			return nil, fmt.Errorf("username routing not supported")
+		}
+		ct, pid, err := repo.ResolveChannelByStoredUsername(ctx, storedUsername, usernamePlatform)
+		if err != nil {
+			return nil, fmt.Errorf("resolve username %q: %w", storedUsername, err)
+		}
+		if ct == "" || pid == "" {
+			hint := ""
+			if usernamePlatform == "" {
+				hint = " Try username_platform (e.g. telegram, discord) if they use several channels."
 			}
-		} else {
-			channelType, channel = ct, cid
+			return nil, fmt.Errorf("no paired user_channels row for username %q — user must interact with the bot on that platform first.%s", storedUsername, hint)
 		}
-	}
-
-	if channel == "" {
-		return nil, fmt.Errorf("channel is required (or use user_id to send to their last channel)")
-	}
-	if channelType == "" && userID == "" {
-		return nil, fmt.Errorf("channel_type is required when specifying channel directly (e.g. telegram, discord)")
-	}
-
-	// If a display name for the recipient is available in context, update memory label
-	if dn, ok := ctx.Value(ContextKeyUserDisplayName).(string); ok && dn != "" {
-		if t.Tools.Memory != nil {
-			// best-effort: update user label for routing/records
-			_ = t.Tools.Memory.UpdateUserLabel(ctx, userID, dn)
-		}
+		channelType, channel = ct, pid
 	}
 
 	err := t.Tools.Messaging.SendMessage(ctx, channelType, channel, content)

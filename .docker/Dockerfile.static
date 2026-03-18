@@ -29,7 +29,7 @@ RUN mkdir -p /app/{bin,config,data,logs,.ollama} && \
     chown -R nonroot:nonroot /app && \
     chmod -R 755 /app
 
-RUN cp /build/dist/openlobsterd /app/bin/openlobsterd
+RUN cp /build/dist/openlobster /app/bin/openlobster
 
 #########################################################################
 # Final stage: Create a minimal image with the static binary and necessary assets.
@@ -39,16 +39,19 @@ FROM dhi.io/static:20250419 AS runtime
 # Make app root directory with proper permissions without using unix commands, only docker layer commands.
 COPY --chown=nonroot:nonroot --from=backend-build /app /app
 
+ENV HOME=/app
+
 USER nonroot
 WORKDIR /app
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# No HEALTHCHECK: distroless/static images usually lack curl/wget/shell.
+# Use: docker run --health-cmd='wget -qO- http://127.0.0.1:8080/health' ... if your base adds tools.
 
 EXPOSE 8080
 
-CMD ["/app/bin/openlobsterd"]
+CMD ["/app/bin/openlobster", "serve", "--data-dir", "/app"]
 
+# Persist data: docker run -v openlobster-data:/app ...
 LABEL maintainer="neirth <7413024+Neirth@users.noreply.github.com>" \
     org.opencontainers.image.title="OpenLobster" \
     org.opencontainers.image.description="OpenLobster is a self-hosted, open-source personal ai autonomous agent platform built with Go and Solid.js, designed to run on your own hardware for maximum privacy and control." \

@@ -183,7 +183,7 @@ const McpsView: Component = () => {
           queryClient.invalidateQueries({ queryKey: ['mcpServers'] });
           queryClient.invalidateQueries({ queryKey: ['mcpTools'] });
           queryClient.invalidateQueries({ queryKey: ['toolPermissions'] });
-          // El backend reconecta en goroutine; invalidar de nuevo tras 2s y 4s para capturar las nuevas herramientas
+          // Backend reconnects in a goroutine; invalidate again after 2s and 4s to pick up new tools
           setTimeout(() => {
             queryClient.invalidateQueries({ queryKey: ['mcpServers'] });
             queryClient.invalidateQueries({ queryKey: ['mcpTools'] });

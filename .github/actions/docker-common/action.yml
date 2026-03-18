@@ -1,16 +1,16 @@
 name: 'Docker Common Steps'
-description: 'Pasos comunes para login, setup y metadata docker.'
+description: 'Common steps for Docker login, setup, and metadata.'
 inputs:
   app:
     required: true
-    description: 'Nombre de la app'
+    description: 'Application name'
   platform:
     required: false
-    description: 'Plataforma (opcional)'
+    description: 'Platform (optional)'
   for-push:
     required: false
     default: 'false'
-    description: '¿Es para push?'
+    description: 'Whether this run is for pushing images'
   dhi-registry-username:
     required: false
     description: 'Username for dhi.io registry'
