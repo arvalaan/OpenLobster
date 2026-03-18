@@ -63,9 +63,10 @@ type App struct {
 	MemoryAdapter ports.MemoryPort
 
 	// Messaging
-	ChanReg          *msgrouter.Registry
-	MsgRouter        *msgrouter.Router
-	MessagingAdapters []ports.MessagingPort
+	ChanReg               *msgrouter.Registry
+	MsgRouter             *msgrouter.Router
+	MessagingAdapters     []ports.MessagingPort
+	MattermostProfileKeys []string // registry keys for per-profile Mattermost adapters
 
 	// Domain services
 	EventBus       domainservices.EventBus

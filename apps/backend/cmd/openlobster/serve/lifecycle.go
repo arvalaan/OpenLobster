@@ -12,6 +12,7 @@ import (
 	domainhandlers "github.com/neirth/openlobster/internal/domain/handlers"
 	domainservices "github.com/neirth/openlobster/internal/domain/services"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/discord"
+	mattermostadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/mattermost"
 	slackadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/slack"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/telegram"
 	"github.com/neirth/openlobster/internal/infrastructure/logging"
@@ -43,13 +44,15 @@ func (a *App) startAndWait() {
 	// Channel listeners (only poll-based adapters — WhatsApp/Twilio are webhook-driven)
 	for _, adapter := range a.MessagingAdapters {
 		var channelType string
-		switch adapter.(type) {
+		switch ad := adapter.(type) {
 		case *telegram.Adapter:
 			channelType = "telegram"
 		case *discord.Adapter:
 			channelType = "discord"
 		case *slackadapter.Adapter:
 			channelType = "slack"
+		case *mattermostadapter.Adapter:
+			channelType = ad.ChannelType()
 		}
 		if channelType == "" {
 			continue

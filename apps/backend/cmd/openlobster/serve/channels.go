@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/neirth/openlobster/internal/application/graphql/dto"
 	"github.com/neirth/openlobster/internal/domain/models"
@@ -10,6 +11,7 @@ import (
 	domainhandlers "github.com/neirth/openlobster/internal/domain/handlers"
 	msgrouter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/router"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/discord"
+	mattermostadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/mattermost"
 	slackadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/slack"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/telegram"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/twilio"
@@ -20,11 +22,12 @@ import (
 // channelCaps lists static capabilities per channel type used when reporting
 // channel status to the dashboard after a hot-reload.
 var channelCaps = map[string]dto.ChannelCapabilities{
-	"telegram": {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"discord":  {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"slack":    {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"whatsapp": {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
-	"twilio":   {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"telegram":   {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"discord":    {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"slack":      {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"whatsapp":   {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"twilio":     {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"mattermost": {HasVoiceMessage: false, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
 }
 
 // initChannels builds the messaging adapter list from config, populates
@@ -88,21 +91,43 @@ func (a *App) initChannels() {
 		log.Println("channel: twilio — registered OK")
 	}
 
+	// Mattermost: multi-profile — each profile gets its own adapter and registry key.
+	if !cfg.Channels.Mattermost.Enabled {
+		log.Println("channel: mattermost — disabled (skipping)")
+	} else if len(cfg.Channels.Mattermost.Profiles) == 0 {
+		log.Println("channel: mattermost — no profiles configured (skipping)")
+	} else {
+		mmSR := mattermostadapter.NewStickyRouter()
+		for _, profile := range cfg.Channels.Mattermost.Profiles {
+			p := profile
+			ad, err := mattermostadapter.NewAdapter(cfg.Channels.Mattermost.ServerURL, p, mmSR)
+			if err != nil {
+				log.Printf("channel: mattermost[%s] — failed to initialize: %v", p.Name, err)
+				continue
+			}
+			a.MessagingAdapters = append(a.MessagingAdapters, ad)
+			a.MattermostProfileKeys = append(a.MattermostProfileKeys, ad.ChannelType())
+			log.Printf("channel: mattermost[%s] — registered OK", p.Name)
+		}
+	}
+
 	log.Printf("channels: %d adapter(s) active", len(a.MessagingAdapters))
 
 	a.ChanReg = msgrouter.New()
 	for _, adapter := range a.MessagingAdapters {
-		switch adapter.(type) {
+		switch ad := adapter.(type) {
 		case *telegram.Adapter:
-			a.ChanReg.Set("telegram", adapter)
+			a.ChanReg.Set("telegram", ad)
 		case *discord.Adapter:
-			a.ChanReg.Set("discord", adapter)
+			a.ChanReg.Set("discord", ad)
 		case *slackadapter.Adapter:
-			a.ChanReg.Set("slack", adapter)
+			a.ChanReg.Set("slack", ad)
 		case *whatsapp.Adapter:
-			a.ChanReg.Set("whatsapp", adapter)
+			a.ChanReg.Set("whatsapp", ad)
 		case *twilio.Adapter:
-			a.ChanReg.Set("twilio", adapter)
+			a.ChanReg.Set("twilio", ad)
+		case *mattermostadapter.Adapter:
+			a.ChanReg.Set(ad.ChannelType(), ad)
 		}
 	}
 
@@ -142,6 +167,15 @@ func (a *App) rebuildActiveChannels() []dto.ChannelStatus {
 			list = append(list, dto.ChannelStatus{
 				ID: t, Name: t, Type: t, Status: "online",
 				Enabled: true, Capabilities: channelCaps[t],
+			})
+		}
+	}
+	for _, key := range a.MattermostProfileKeys {
+		if a.ChanReg.Get(key) != nil {
+			name := strings.TrimPrefix(key, "mattermost:")
+			list = append(list, dto.ChannelStatus{
+				ID: key, Name: "mattermost:" + name, Type: "mattermost", Status: "online",
+				Enabled: true, Capabilities: channelCaps["mattermost"],
 			})
 		}
 	}
