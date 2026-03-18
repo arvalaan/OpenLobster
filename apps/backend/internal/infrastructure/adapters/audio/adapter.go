@@ -148,7 +148,8 @@ func (a *AudioAdapter) decodeWav(data []byte) (*AudioStream, error) {
 			audioData := make([]byte, size)
 			reader.Read(audioData)
 
-			if bitsPerSample == 16 {
+			switch bitsPerSample {
+			case 16:
 				return &AudioStream{
 					Data:       audioData,
 					SampleRate: sampleRate,
@@ -156,7 +157,7 @@ func (a *AudioAdapter) decodeWav(data []byte) (*AudioStream, error) {
 					BitDepth:   bitsPerSample,
 					Format:     "wav",
 				}, nil
-			} else if bitsPerSample == 8 {
+			case 8:
 				samples := make([]int16, len(audioData))
 				for i, b := range audioData {
 					samples[i] = int16(b) - 128

@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef, @typescript-eslint/no-explicit-any */
+/* eslint-disable no-undef */
 
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent } from "@solidjs/testing-library";
@@ -120,18 +120,27 @@ describe("SkillsView Component", () => {
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
     const mockReadAsDataURL = vi.fn();
-    const mockFileReader = {
-      readAsDataURL: mockReadAsDataURL,
-      onload: null as any,
+    let lastInstance: any;
+    const instance = {
+      onload: null as null | (() => void),
       result: "data:application/zip;base64,AAAA",
+      readAsDataURL: mockReadAsDataURL,
     };
-    vi.stubGlobal("FileReader", vi.fn(() => mockFileReader));
+    class MockFileReader {
+      constructor() {
+        lastInstance = instance;
+         
+        return instance as any;
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader as any);
 
     const file = new File(["content"], "skill.zip", { type: "application/zip" });
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
 
     expect(mockReadAsDataURL).toHaveBeenCalledWith(file);
+    expect(lastInstance).toBeTruthy();
     vi.unstubAllGlobals();
   });
 
@@ -139,19 +148,27 @@ describe("SkillsView Component", () => {
     const { container } = renderWithQueryClient(() => <SkillsView />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
-    const mockFileReader: Record<string, any> = {
-      readAsDataURL: vi.fn(),
-      onload: null as (() => void) | null,
+    let lastInstance: any;
+    const instance = {
+      onload: null as null | (() => void),
       result: "data:application/zip;base64,dGVzdGRhdGE=",
+      readAsDataURL: vi.fn(),
     };
-    vi.stubGlobal("FileReader", vi.fn(() => mockFileReader));
+    class MockFileReader {
+      constructor() {
+        lastInstance = instance;
+         
+        return instance as any;
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader as any);
 
     const file = new File(["test"], "skill.zip", { type: "application/zip" });
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
 
     // simulate FileReader load completing
-    const onload = mockFileReader.onload as (() => void) | null;
+    const onload = lastInstance?.onload as (() => void) | null;
     if (onload) onload();
     // no error should be shown — import was invoked
     expect(container.querySelector(".skills-import-error")).toBeNull();
@@ -162,18 +179,26 @@ describe("SkillsView Component", () => {
     const { container } = renderWithQueryClient(() => <SkillsView />);
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
 
-    const mockFileReader: Record<string, any> = {
-      readAsDataURL: vi.fn(),
-      onload: null as (() => void) | null,
+    let lastInstance: any;
+    const instance = {
+      onload: null as null | (() => void),
       result: "data:application/zip;base64,",
+      readAsDataURL: vi.fn(),
     };
-    vi.stubGlobal("FileReader", vi.fn(() => mockFileReader));
+    class MockFileReader {
+      constructor() {
+        lastInstance = instance;
+         
+        return instance as any;
+      }
+    }
+    vi.stubGlobal("FileReader", MockFileReader as any);
 
     const file = new File([""], "empty.zip", { type: "application/zip" });
     Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
     fireEvent.change(fileInput);
 
-    const onload = mockFileReader.onload as (() => void) | null;
+    const onload = lastInstance?.onload as (() => void) | null;
     if (onload) onload();
 
     expect(container.querySelector(".skills-import-error")).toBeTruthy();

@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef, @typescript-eslint/no-explicit-any */
+ 
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "@solidjs/testing-library";

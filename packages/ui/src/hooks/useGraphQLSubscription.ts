@@ -54,14 +54,16 @@ export function useGraphQLSubscription<T>(options: UseGraphQLSubscriptionOptions
         variables: options.variables,
       },
       {
-        next: (message: any) => {
-          if (message.type === 'next' && message.payload?.data) {
-            const subscriptionData = Object.values(message.payload.data)[0] as T;
+        next: (message: unknown) => {
+          const m = message as { type?: unknown; payload?: { data?: unknown } } | null;
+          if (m?.type === 'next' && m.payload?.data && typeof m.payload.data === 'object') {
+            const first = Object.values(m.payload.data as Record<string, unknown>)[0];
+            const subscriptionData = first as T;
             setData(subscriptionData);
             options.onData?.(subscriptionData);
           }
         },
-        error: (err: any) => {
+        error: (err: unknown) => {
           const error = new Error(String(err));
           setError(error);
           options.onError?.(error);

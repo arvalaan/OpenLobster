@@ -166,7 +166,7 @@ const MarketplaceModal: Component<MarketplaceModalProps> = (props) => {
                         />
                         <span
                           class="material-symbols-outlined marketplace-card__fallback-icon"
-                          style="display:none"
+                          style={{"display":"none"}}
                         >
                           extension
                         </span>
@@ -209,7 +209,7 @@ const MarketplaceModal: Component<MarketplaceModalProps> = (props) => {
                         />
                         <span
                           class="material-symbols-outlined marketplace-detail__fallback-icon"
-                          style="display:none"
+                          style={{"display":"none"}}
                         >
                           extension
                         </span>

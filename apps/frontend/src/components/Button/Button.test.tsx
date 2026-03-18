@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef */
+ 
 
 import { describe, it, expect } from 'vitest';
 import { render } from '@solidjs/testing-library';

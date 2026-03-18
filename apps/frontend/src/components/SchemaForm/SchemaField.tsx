@@ -6,6 +6,17 @@ import type { SchemaProperty } from "../../schemas/config.schema";
 import { getSchemaFieldI18nKey } from "../../schemas/config.schema";
 import "./SchemaForm.css";
 
+/** Primitive value types used in configuration form fields. */
+type FormPrimitiveValue = string | number | boolean | undefined;
+
+// Use an interface to model recursive objects. TypeScript rejects recursive type aliases,
+// but recursive interfaces are allowed.
+interface FormValueRecord {
+  [key: string]: FormValue;
+}
+
+type FormValue = FormPrimitiveValue | FormValueRecord;
+
 export interface SchemaFormProps {
   /**
    * Field key from the schema
@@ -18,88 +29,120 @@ export interface SchemaFormProps {
   /**
    * Current form values (entire config object)
    */
-  values: Record<string, any>;
+  values: Record<string, unknown>;
   /**
    * Callback when field value changes
    */
-  onChange: (field: string, value: any) => void;
+  onChange: (field: string, value: FormValue) => void;
+}
+
+/** Dependency condition shape used in JSON Schema. */
+interface DependencyConditionNode {
+  const?: unknown;
+  properties?: Record<string, DependencyConditionNode>;
+}
+
+interface DependencyCondition {
+  properties?: Record<string, DependencyConditionNode>;
+  oneOf?: DependencyCondition[];
 }
 
 /**
  * Check if a field should be shown based on its dependencies
  */
 function checkDependencies(
-  dependencies: Record<string, any> | undefined,
-  values: Record<string, any>
+  dependencies: Record<string, DependencyCondition> | undefined,
+  values: Record<string, unknown>
 ): boolean {
   if (!dependencies) return true;
 
   for (const [depField, depCondition] of Object.entries(dependencies)) {
     if (depCondition.properties) {
       const fieldPath = depField.split(".");
-      let currentValue = values;
-      
+      let currentValue: unknown = values;
+
       for (const pathPart of fieldPath) {
         if (currentValue && typeof currentValue === "object") {
-          currentValue = currentValue[pathPart];
+          currentValue = (currentValue as Record<string, unknown>)[pathPart];
         } else {
           return false;
         }
       }
 
-      const conditionKey = Object.keys(depCondition.properties)[0];
-      const conditionValue = depCondition.properties[conditionKey];
-      
-      if (conditionValue.const !== undefined) {
-        if (currentValue !== conditionValue.const) {
-          return false;
+      // Resolve the "leaf" node for this dependency path and compare its `const`
+      // against the current value at the same path.
+      const leafNode = (() => {
+        const firstKey = fieldPath[0];
+        let node: DependencyConditionNode | undefined = depCondition.properties?.[firstKey];
+        for (let i = 1; i < fieldPath.length; i++) {
+          node = node?.properties?.[fieldPath[i]];
         }
-      }
+        return node;
+      })();
+
+      if (leafNode?.const !== undefined && currentValue !== leafNode.const) return false;
     }
 
     if (depCondition.oneOf) {
-      let matched = false;
-      for (const condition of depCondition.oneOf) {
-        if (condition.properties) {
-          const condKey = Object.keys(condition.properties)[0];
-          const condValue = condition.properties[condKey].const;
-          if (values[condKey] === condValue) {
-            matched = true;
-            break;
+      const anyMatched = depCondition.oneOf.some((condition) => {
+        if (!condition.properties) return false;
+
+        const fieldPath = depField.split(".");
+        let current: unknown = values;
+        for (const part of fieldPath) {
+          if (current && typeof current === "object") {
+            current = (current as Record<string, unknown>)[part];
+          } else {
+            return false;
           }
         }
-      }
-      if (!matched) return false;
+
+        const firstKey = fieldPath[0];
+        let node: DependencyConditionNode | undefined = condition.properties[firstKey];
+        for (let i = 1; i < fieldPath.length; i++) {
+          node = node?.properties?.[fieldPath[i]];
+        }
+        return node?.const !== undefined && current === node.const;
+      });
+
+      if (!anyMatched) return false;
     }
   }
 
   return true;
 }
 
-function getValueAtPath(values: Record<string, any>, path: string): any {
+function getValueAtPath(values: Record<string, unknown>, path: string): FormValue | undefined {
   const parts = path.split(".");
-  let current: any = values;
+  let current: unknown = values;
 
   for (const part of parts) {
     if (current && typeof current === "object") {
-      current = current[part];
+      current = (current as Record<string, unknown>)[part];
     } else {
       return undefined;
     }
   }
 
-  return current;
+  return current as FormValue | undefined;
 }
 
 /**
  * Renders a single form field based on JSON Schema property
  */
 export const SchemaField: Component<SchemaFormProps> = (props) => {
-  const isVisible = createMemo(() => 
-    checkDependencies(props.schema.dependencies, props.values)
+  const isVisible = createMemo(() =>
+    checkDependencies(
+      props.schema.dependencies as Record<string, DependencyCondition> | undefined,
+      props.values
+    )
   );
 
   const fieldValue = createMemo(() => getValueAtPath(props.values, props.field));
+
+  const fieldValueAsBoolean = () => (typeof fieldValue() === "boolean" ? (fieldValue() as boolean) : undefined);
+  const fieldValueAsString = () => (typeof fieldValue() === "string" ? (fieldValue() as string) : undefined);
+  const fieldValueAsNumber = () => (typeof fieldValue() === "number" ? (fieldValue() as number) : undefined);
 
   const fieldClass = createMemo(() => {
     if (props.schema.type === "object") return "schema-field schema-field--group";
@@ -109,26 +152,23 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
     return "schema-field schema-field--row";
   });
 
-  const objectProperties = createMemo(() => {
-    const schemaWithProps = props.schema as SchemaProperty & {
-      properties?: Record<string, SchemaProperty>;
-    };
-    return schemaWithProps.properties;
-  });
+  const objectProperties = createMemo(() => props.schema.properties);
 
-  const handleChange = (value: any) => {
+  const handleChange = (value: FormValue) => {
     props.onChange(props.field, value);
   };
 
-  const titleKey = getSchemaFieldI18nKey(props.field, false);
-  const descKey = getSchemaFieldI18nKey(props.field, true);
+  const titleKey = () => getSchemaFieldI18nKey(props.field, false);
+  const descKey = () => getSchemaFieldI18nKey(props.field, true);
   const displayTitle = () => {
-    const translated = t(titleKey);
-    return translated !== titleKey ? translated : props.schema.title;
+    const key = titleKey();
+    const translated = t(key);
+    return translated !== key ? translated : props.schema.title;
   };
   const displayDescription = () => {
-    const translated = t(descKey);
-    return translated !== descKey ? translated : props.schema.description;
+    const key = descKey();
+    const translated = t(key);
+    return translated !== key ? translated : props.schema.description;
   };
 
   return (
@@ -146,7 +186,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
           <label class="toggle-switch field-control">
             <input
               type="checkbox"
-              checked={fieldValue() ?? props.schema.default ?? false}
+              checked={fieldValueAsBoolean() ?? (props.schema.default as boolean | undefined) ?? false}
               onChange={(e) => handleChange(e.currentTarget.checked)}
             />
             <span class="toggle-slider" />
@@ -157,7 +197,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
         <Show when={props.schema.type === "string" && props.schema.enum}>
           <select
             class="field-select field-control"
-            value={fieldValue() ?? props.schema.default ?? ""}
+            value={fieldValueAsString() ?? (props.schema.default as string | undefined) ?? ""}
             onChange={(e) => handleChange(e.currentTarget.value)}
           >
             <For each={props.schema.enum}>
@@ -176,7 +216,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
           <input
             type="text"
             class="field-input field-control"
-            value={fieldValue() ?? props.schema.default ?? ""}
+            value={fieldValueAsString() ?? (props.schema.default as string | undefined) ?? ""}
             placeholder={displayTitle()}
             onInput={(e) => handleChange(e.currentTarget.value)}
           />
@@ -187,7 +227,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
           <input
             type="password"
             class="field-input field-control"
-            value={fieldValue() ?? ""}
+            value={fieldValueAsString() ?? ""}
             placeholder={displayTitle()}
             onInput={(e) => handleChange(e.currentTarget.value)}
           />
@@ -197,7 +237,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
         <Show when={props.schema.type === "string" && props.schema.format === "textarea"}>
           <textarea
             class="field-textarea field-control"
-            value={fieldValue() ?? props.schema.default ?? ""}
+            value={fieldValueAsString() ?? (props.schema.default as string | undefined) ?? ""}
             placeholder={displayTitle()}
             onInput={(e) => handleChange(e.currentTarget.value)}
           />
@@ -208,7 +248,7 @@ export const SchemaField: Component<SchemaFormProps> = (props) => {
           <input
             type="number"
             class="field-input field-control"
-            value={fieldValue() ?? props.schema.default ?? 0}
+            value={fieldValueAsNumber() ?? (props.schema.default as number | undefined) ?? 0}
             min={props.schema.minimum}
             max={props.schema.maximum}
             onInput={(e) => handleChange(parseInt(e.currentTarget.value, 10))}

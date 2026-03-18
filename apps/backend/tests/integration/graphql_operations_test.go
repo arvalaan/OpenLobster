@@ -94,7 +94,7 @@ func (s *stubToolPermRepo) Set(ctx context.Context, userID, toolName, mode strin
 func (s *stubToolPermRepo) Delete(ctx context.Context, userID, toolName string) error {
 	out := s.perms[:0]
 	for _, p := range s.perms {
-		if !(p.UserID == userID && p.ToolName == toolName) {
+		if p.UserID != userID || p.ToolName != toolName {
 			out = append(out, p)
 		}
 	}

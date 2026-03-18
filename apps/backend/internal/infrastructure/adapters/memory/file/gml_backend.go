@@ -89,7 +89,9 @@ func (b *GMLBackend) persistLoop() {
 	defer close(b.loopDone)
 	for graph := range b.persistCh {
 		b.doPersist(graph)
+		b.mu.Lock()
 		b.dirty = false
+		b.mu.Unlock()
 		select {
 		case b.persistDone <- struct{}{}:
 		default:
@@ -824,28 +826,28 @@ func serializeGML(graph *InMemoryGraph) []byte {
 	sb.WriteString("  directed 1\n")
 
 	for _, node := range graph.Nodes {
-		sb.WriteString(fmt.Sprintf("  node [\n"))
-		sb.WriteString(fmt.Sprintf("    id %d\n", node.ID))
-		sb.WriteString(fmt.Sprintf("    label \"%s\"\n", node.Label))
+		sb.WriteString("  node [\n")
+		fmt.Fprintf(&sb, "    id %d\n", node.ID)
+		fmt.Fprintf(&sb, "    label \"%s\"\n", node.Label)
 		if node.Type != "" {
-			sb.WriteString(fmt.Sprintf("    type \"%s\"\n", node.Type))
+			fmt.Fprintf(&sb, "    type \"%s\"\n", node.Type)
 		}
 		if node.Value != "" {
-			sb.WriteString(fmt.Sprintf("    value \"%s\"\n", node.Value))
+			fmt.Fprintf(&sb, "    value \"%s\"\n", node.Value)
 		}
 		// Write custom properties
 		for key, val := range node.Properties {
-			sb.WriteString(fmt.Sprintf("    %s \"%s\"\n", key, val))
+			fmt.Fprintf(&sb, "    %s \"%s\"\n", key, val)
 		}
-		sb.WriteString(fmt.Sprintf("  ]\n"))
+		sb.WriteString("  ]\n")
 	}
 
 	for _, edge := range graph.Edges {
-		sb.WriteString(fmt.Sprintf("  edge [\n"))
-		sb.WriteString(fmt.Sprintf("    source %d\n", edge.Source))
-		sb.WriteString(fmt.Sprintf("    target %d\n", edge.Target))
-		sb.WriteString(fmt.Sprintf("    label \"%s\"\n", edge.Label))
-		sb.WriteString(fmt.Sprintf("  ]\n"))
+		sb.WriteString("  edge [\n")
+		fmt.Fprintf(&sb, "    source %d\n", edge.Source)
+		fmt.Fprintf(&sb, "    target %d\n", edge.Target)
+		fmt.Fprintf(&sb, "    label \"%s\"\n", edge.Label)
+		sb.WriteString("  ]\n")
 	}
 
 	sb.WriteString("]\n")

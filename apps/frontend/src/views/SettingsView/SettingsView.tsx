@@ -28,7 +28,7 @@ function graphqlHeaders(): Record<string, string> {
 }
 
 /** Default form values used when loading fails or for initialisation. */
-function getDefaultFormValues(): Record<string, any> {
+function getDefaultFormValues(): Record<string, unknown> {
   return {
     agentName: "OpenLobster",
     provider: "ollama",
@@ -103,7 +103,7 @@ const BOT_DOC_LINKS: { labelKey: string; href: string }[] = [
 const SettingsView: Component = () => {
   const queryClient = useQueryClient();
   // Form values state - will be loaded from server
-  const [formValues, setFormValues] = createSignal<Record<string, any>>({});
+  const [formValues, setFormValues] = createSignal<Record<string, unknown>>({});
   const [isLoading, setIsLoading] = createSignal(true);
   const [isSaving, setIsSaving] = createSignal(false);
   const [saveMessage, setSaveMessage] = createSignal<{
@@ -256,21 +256,22 @@ const SettingsView: Component = () => {
   });
 
   // Update a single field value
-  const handleFieldChange = (field: string, value: any) => {
+  const handleFieldChange = (field: string, value: unknown) => {
     setFormValues((prev) => {
       const newValues = { ...prev };
 
       // Handle nested fields (e.g., "capabilities.browser")
       if (field.includes(".")) {
         const parts = field.split(".");
-        let target: any = newValues;
+        let target: Record<string, unknown> = newValues;
 
         for (let i = 0; i < parts.length - 1; i++) {
           const part = parts[i];
-          if (!target[part]) {
+          const current = target[part];
+          if (typeof current !== 'object' || current === null) {
             target[part] = {};
           }
-          target = target[part];
+          target = target[part] as Record<string, unknown>;
         }
 
         target[parts[parts.length - 1]] = value;

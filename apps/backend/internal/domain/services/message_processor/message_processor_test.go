@@ -224,13 +224,13 @@ func TestPromptBuilderService_Build_WithUserContext(t *testing.T) {
 }
 
 func TestNewPromptBuilderServiceWithContext(t *testing.T) {
-	injector := ctxutil.NewContextInjector("", "", "", "", "", nil, nil)
+	injector := ctxutil.NewContextInjector("", "", "", "", "", "", nil, nil)
 	builder := NewPromptBuilderServiceWithContext("sys", nil, injector)
 	assert.NotNil(t, builder)
 }
 
 func TestPromptBuilderService_BuildWithContext(t *testing.T) {
-	injector := ctxutil.NewContextInjector("", "", "", "", "", nil, nil)
+	injector := ctxutil.NewContextInjector("", "", "", "", "", "", nil, nil)
 	builder := NewPromptBuilderServiceWithContext("sys", nil, injector)
 
 	messages, err := builder.BuildWithContext(context.Background(), nil, "", nil)

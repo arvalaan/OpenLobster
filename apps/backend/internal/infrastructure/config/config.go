@@ -137,16 +137,6 @@ func (c *Config) Validate() error {
 		errs = append(errs, "at least one AI provider must be configured: providers.openai.api_key, providers.openrouter.api_key, providers.ollama.endpoint, providers.openaicompat (api_key + base_url), providers.anthropic.api_key, providers.docker_model_runner.endpoint, or providers.opencode.api_key")
 	}
 
-	// Telegram: if a token is set it must not be a placeholder.
-	if !isPlaceholder(c.Channels.Telegram.BotToken) {
-		// token looks real — nothing else to validate for Telegram
-	}
-
-	// Discord: same.
-	if !isPlaceholder(c.Channels.Discord.BotToken) {
-		// token looks real
-	}
-
 	// Scheduler: interval must be positive when enabled.
 	if c.Scheduler.Enabled && c.Scheduler.Interval <= 0 {
 		errs = append(errs, "scheduler.interval must be a positive duration when scheduler.enabled is true")

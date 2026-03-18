@@ -71,6 +71,8 @@ function detectBrowserLocale(): Locale {
 }
 
 const [locale, setLocale] = createSignal<Locale>(detectBrowserLocale());
+// The getter passed to translator is called in a reactive context by the library.
+// eslint-disable-next-line solid/reactivity
 export const t = translator(() => dicts[locale()], resolveTemplate);
 export { locale, setLocale };
 
@@ -94,16 +96,14 @@ const Root: Component = () => {
 
   // When OAuth callback fails, backend redirects to /?oauth_callback=error&message=...
   // In that case (popup window), show a modal instead of the normal app
-  const [oauthError, _setOauthError] = createSignal<{ message: string } | null>(
-    (() => {
-      if (typeof window === "undefined") return null;
-      const params = new URLSearchParams(window.location.search);
-      const status = params.get("oauth_callback");
-      const message = params.get("message") ?? "";
-      if (window.opener && status === "error" && message) return { message: decodeURIComponent(message) };
-      return null;
-    })(),
-  );
+  const oauthError = () => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("oauth_callback");
+    const message = params.get("message") ?? "";
+    if (window.opener && status === "error" && message) return { message: decodeURIComponent(message) };
+    return null;
+  };
 
   onMount(() => {
     const m = window.matchMedia("(prefers-color-scheme: light)");

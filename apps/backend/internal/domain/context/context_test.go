@@ -19,6 +19,7 @@ func TestNewContextInjector(t *testing.T) {
 		"./soul.md",
 		"./identity.md",
 		"",
+		"",
 		nil,
 		nil,
 	)
@@ -27,6 +28,7 @@ func TestNewContextInjector(t *testing.T) {
 
 func TestContextInjector_BuildContext_NoMemory(t *testing.T) {
 	injector := NewContextInjector(
+		"",
 		"",
 		"",
 		"",
@@ -63,6 +65,7 @@ func TestContextInjector_BuildContext_WithMemory(t *testing.T) {
 		"",
 		"",
 		"",
+		"",
 		mockMemory,
 		nil,
 	)
@@ -83,7 +86,7 @@ func TestContextInjector_GetUserMemory(t *testing.T) {
 		},
 	}
 
-	injector := NewContextInjector("", "", "", "", "", mockMemory, nil)
+	injector := NewContextInjector("", "", "", "", "", "", mockMemory, nil)
 
 	graph, err := injector.GetUserMemory(context.Background(), "user123")
 
@@ -99,7 +102,7 @@ func TestContextInjector_GetGroupMemories(t *testing.T) {
 		},
 	}
 
-	injector := NewContextInjector("", "", "", "", "", mockMemory, nil)
+	injector := NewContextInjector("", "", "", "", "", "", mockMemory, nil)
 
 	graphs, err := injector.GetGroupMemories(context.Background(), []string{"user1", "user2"})
 
@@ -330,7 +333,7 @@ func TestContextInjector_BuildContext_WithToolRegistry(t *testing.T) {
 	reg.RegisterInternal("internal_tool", &fakeInternalTool{name: "internal_tool", desc: "Internal"})
 	reg.RegisterInternal("mcp_server:external", &fakeInternalTool{name: "mcp_server:external", desc: "MCP tool"})
 
-	injector := NewContextInjector("", "", "", "", "", nil, reg)
+	injector := NewContextInjector("", "", "", "", "", "", nil, reg)
 	ctx := context.Background()
 	agentCtx, err := injector.BuildContext(ctx, "", "")
 	assert.NoError(t, err)
@@ -358,7 +361,7 @@ func TestContextInjector_GetGroupMemories_PartialError(t *testing.T) {
 		user1Graph: ports.Graph{Nodes: []ports.GraphNode{{ID: "1", Type: "user"}}, Edges: []ports.GraphEdge{}},
 		failFor:    "user2",
 	}
-	injector := NewContextInjector("", "", "", "", "", mockMemory, nil)
+	injector := NewContextInjector("", "", "", "", "", "", mockMemory, nil)
 	graphs, err := injector.GetGroupMemories(context.Background(), []string{"user1", "user2"})
 	assert.NoError(t, err)
 	assert.Len(t, graphs, 1)
@@ -402,7 +405,7 @@ func TestContextInjector_GetUserMemory_BackendError(t *testing.T) {
 		graph: ports.Graph{},
 		err:   fmt.Errorf("backend error"),
 	}
-	injector := NewContextInjector("", "", "", "", "", mockMemory, nil)
+	injector := NewContextInjector("", "", "", "", "", "", mockMemory, nil)
 
 	graph, err := injector.GetUserMemory(context.Background(), "user123")
 	assert.Error(t, err)
@@ -417,7 +420,7 @@ func TestContextInjector_QueryUserMemory(t *testing.T) {
 		},
 	}
 
-	injector := NewContextInjector("", "", "", "", "", mockMemory, nil)
+	injector := NewContextInjector("", "", "", "", "", "", mockMemory, nil)
 
 	graph, err := injector.QueryUserMemory(context.Background(), "requester", "target")
 
@@ -444,6 +447,7 @@ func TestContextInjector_BuildContext_SystemFiles(t *testing.T) {
 		"./soul.md",
 		"./identity.md",
 		"",
+		"",
 		mockMemory,
 		nil,
 	)
@@ -457,7 +461,7 @@ func TestContextInjector_BuildContext_SystemFiles(t *testing.T) {
 }
 
 func TestContextInjector_GetGroupMemories_Empty(t *testing.T) {
-	injector := NewContextInjector("", "", "", "", "", nil, nil)
+	injector := NewContextInjector("", "", "", "", "", "", nil, nil)
 
 	graphs, err := injector.GetGroupMemories(context.Background(), []string{})
 
@@ -466,7 +470,7 @@ func TestContextInjector_GetGroupMemories_Empty(t *testing.T) {
 }
 
 func TestContextInjector_GetUserMemory_NilBackend(t *testing.T) {
-	injector := NewContextInjector("", "", "", "", "", nil, nil)
+	injector := NewContextInjector("", "", "", "", "", "", nil, nil)
 
 	graph, err := injector.GetUserMemory(context.Background(), "user123")
 

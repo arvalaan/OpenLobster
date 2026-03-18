@@ -81,7 +81,7 @@ func MessagesToContent(messages []models.Message) string {
 func messagesToContent(messages []models.Message) string {
 	var sb strings.Builder
 	for _, m := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", m.Role, m.Content))
+		fmt.Fprintf(&sb, "%s: %s\n", m.Role, m.Content)
 	}
 	return sb.String()
 }

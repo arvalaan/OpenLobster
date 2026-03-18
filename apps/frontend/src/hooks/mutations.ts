@@ -15,16 +15,15 @@ import {
  */
 export function useUpdateConfig(client: GraphQLClient) {
   return createMutation(() => ({
-    mutationFn: async (variables: Record<string, any>) => {
-      console.log("Sending updateConfig mutation with variables:", variables);
+    mutationFn: async (variables: Record<string, unknown>) => {
       const result = await client.request(UPDATE_CONFIG_MUTATION, variables);
       return result;
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("updateConfig mutation failed:", error);
     },
-    onSuccess: (data: any) => {
-      console.log("updateConfig mutation succeeded:", data);
+    onSuccess: (_data: unknown) => {
+      // mutation succeeded
     },
   }));
 }
@@ -34,16 +33,15 @@ export function useUpdateConfig(client: GraphQLClient) {
  */
 export function useAddMCPServer(client: GraphQLClient) {
   return createMutation(() => ({
-    mutationFn: async (variables: Record<string, any>) => {
-      console.log("Sending addMCPServer mutation with variables:", variables);
+    mutationFn: async (variables: Record<string, unknown>) => {
       const result = await client.request(ADD_MCP_SERVER_MUTATION, variables);
       return result;
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("addMCPServer mutation failed:", error);
     },
-    onSuccess: (data: any) => {
-      console.log("addMCPServer mutation succeeded:", data);
+    onSuccess: (_data: unknown) => {
+      // mutation succeeded
     },
   }));
 }
@@ -53,16 +51,15 @@ export function useAddMCPServer(client: GraphQLClient) {
  */
 export function useRemoveMCPServer(client: GraphQLClient) {
   return createMutation(() => ({
-    mutationFn: async (variables: Record<string, any>) => {
-      console.log("Sending removeMCPServer mutation with variables:", variables);
+    mutationFn: async (variables: Record<string, unknown>) => {
       const result = await client.request(REMOVE_MCP_SERVER_MUTATION, variables);
       return result;
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("removeMCPServer mutation failed:", error);
     },
-    onSuccess: (data: any) => {
-      console.log("removeMCPServer mutation succeeded:", data);
+    onSuccess: (_data: unknown) => {
+      // mutation succeeded
     },
   }));
 }
@@ -72,16 +69,15 @@ export function useRemoveMCPServer(client: GraphQLClient) {
  */
 export function useAddTask(client: GraphQLClient) {
   return createMutation(() => ({
-    mutationFn: async (variables: Record<string, any>) => {
-      console.log("Sending addTask mutation with variables:", variables);
+    mutationFn: async (variables: Record<string, unknown>) => {
       const result = await client.request(ADD_TASK_MUTATION, variables);
       return result;
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("addTask mutation failed:", error);
     },
-    onSuccess: (data: any) => {
-      console.log("addTask mutation succeeded:", data);
+    onSuccess: (_data: unknown) => {
+      // mutation succeeded
     },
   }));
 }
@@ -91,16 +87,15 @@ export function useAddTask(client: GraphQLClient) {
  */
 export function useRemoveTask(client: GraphQLClient) {
   return createMutation(() => ({
-    mutationFn: async (variables: Record<string, any>) => {
-      console.log("Sending removeTask mutation with variables:", variables);
+    mutationFn: async (variables: Record<string, unknown>) => {
       const result = await client.request(REMOVE_TASK_MUTATION, variables);
       return result;
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("removeTask mutation failed:", error);
     },
-    onSuccess: (data: any) => {
-      console.log("removeTask mutation succeeded:", data);
+    onSuccess: (_data: unknown) => {
+      // mutation succeeded
     },
   }));
 }

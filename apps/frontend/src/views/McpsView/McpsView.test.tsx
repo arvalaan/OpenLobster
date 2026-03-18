@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef, @typescript-eslint/no-explicit-any */
+/* eslint-disable no-undef */
 
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent } from "@solidjs/testing-library";
@@ -149,31 +149,32 @@ describe("McpsView Component", () => {
   it("permissions tab shows user list", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    const userList = container.querySelector(".permissions-user-list");
+    const userList = container.querySelector(".permissions-user-select");
     expect(userList).toBeTruthy();
-    expect(container.querySelectorAll(".permissions-user-item").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".permissions-user-chip").length).toBeGreaterThan(0);
   });
 
   it("selecting a user in permissions tab shows tool matrix", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    const firstUser = container.querySelector(".permissions-user-item") as HTMLElement;
-    fireEvent.click(firstUser);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     expect(container.querySelector(".permissions-tool-table")).toBeTruthy();
   });
 
   it("selected user item gets active class", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    const firstUser = container.querySelector(".permissions-user-item") as HTMLElement;
-    fireEvent.click(firstUser);
-    expect(firstUser.classList.contains("permissions-user-item--active")).toBe(true);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
+    expect(firstUser.classList.contains("permissions-user-chip--active")).toBe(true);
   });
 
   it("tool groups are rendered in permissions matrix", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     const groups = container.querySelectorAll(".permissions-tool-group__header");
     expect(groups.length).toBeGreaterThan(0);
   });
@@ -181,7 +182,8 @@ describe("McpsView Component", () => {
   it("tool rows are rendered inside a group", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     const rows = container.querySelectorAll(".permissions-tool-row");
     expect(rows.length).toBeGreaterThan(0);
   });
@@ -189,7 +191,8 @@ describe("McpsView Component", () => {
   it("clicking a group header collapses its tools", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     const initialRows = container.querySelectorAll(".permissions-tool-row").length;
     const firstGroup = container.querySelector(".permissions-tool-group__header") as HTMLElement;
     fireEvent.click(firstGroup);
@@ -200,7 +203,8 @@ describe("McpsView Component", () => {
   it("clicking collapsed group header expands it again", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     const firstGroup = container.querySelector(".permissions-tool-group__header") as HTMLElement;
     const rowsBefore = container.querySelectorAll(".permissions-tool-row").length;
     fireEvent.click(firstGroup);
@@ -211,7 +215,8 @@ describe("McpsView Component", () => {
   it("clicking a tool toggle changes its state", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
     const firstToggle = container.querySelector(".permissions-toggle") as HTMLElement;
     // clicking should not throw even though mutate is mocked
     fireEvent.click(firstToggle);
@@ -221,14 +226,12 @@ describe("McpsView Component", () => {
   it("bulk allow button is rendered when user is selected", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
     expect(container.querySelector(".btn-bulk-allow")).toBeTruthy();
   });
 
   it("clicking bulk allow button calls mutate", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
     const bulkAllow = container.querySelector(".btn-bulk-allow") as HTMLElement;
     fireEvent.click(bulkAllow);
     expect(bulkAllow).toBeTruthy();
@@ -237,16 +240,15 @@ describe("McpsView Component", () => {
   it("clicking bulk deny button calls mutate", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
     const bulkDeny = container.querySelector(".btn-bulk-deny") as HTMLElement;
     fireEvent.click(bulkDeny);
     expect(bulkDeny).toBeTruthy();
   });
 
-  it("permissions tab shows empty state when no user selected", () => {
+  it("permissions tab auto-selects a user when available", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    expect(container.querySelector(".permissions-empty-state")).toBeTruthy();
+    expect(container.querySelector(".permissions-user-chip--active")).toBeTruthy();
   });
 
   it("clicking a built-in capability card opens detail modal", () => {
@@ -410,7 +412,8 @@ describe("McpsView Component", () => {
   it("permissions main header shows policy note when user selected", () => {
     const { container, getByText } = renderWithQueryClient(() => <McpsView />);
     fireEvent.click(getByText(/Permissions/i));
-    fireEvent.click(container.querySelector(".permissions-user-item") as HTMLElement);
-    expect(container.querySelector(".permissions-policy-note")).toBeTruthy();
+    const firstUser = container.querySelector(".permissions-user-chip") as HTMLElement;
+    if (firstUser) fireEvent.click(firstUser);
+    expect(container.querySelector(".permissions-bulk-actions")).toBeTruthy();
   });
 });

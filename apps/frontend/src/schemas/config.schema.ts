@@ -11,11 +11,22 @@ export interface ConfigSchema {
   required?: string[];
 }
 
+/** Condition shape used in JSON Schema dependency rules. */
+export interface SchemaConditionNode {
+  const?: unknown;
+  properties?: Record<string, SchemaConditionNode>;
+}
+
+export interface SchemaCondition {
+  properties?: Record<string, SchemaConditionNode>;
+  oneOf?: SchemaCondition[];
+}
+
 export interface SchemaProperty {
   type: string;
   title: string;
   description: string;
-  default?: any;
+  default?: unknown;
   properties?: Record<string, SchemaProperty>;
   enum?: string[];
   minLength?: number;
@@ -24,12 +35,12 @@ export interface SchemaProperty {
   maximum?: number;
   pattern?: string;
   format?: string;
-  dependencies?: Record<string, any>;
-  oneOf?: any[];
-  allOf?: any[];
-  if?: any;
-  then?: any;
-  else?: any;
+  dependencies?: Record<string, SchemaCondition>;
+  oneOf?: SchemaCondition[];
+  allOf?: SchemaCondition[];
+  if?: SchemaCondition;
+  then?: SchemaCondition;
+  else?: SchemaCondition;
 }
 
 /**

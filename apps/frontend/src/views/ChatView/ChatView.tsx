@@ -10,7 +10,7 @@
  */
 
 import type { Component } from 'solid-js';
-import { createSignal, For, Show, Suspense, createEffect, batch } from 'solid-js';
+import { createSignal, For, Show, Suspense, createEffect, batch, createMemo } from 'solid-js';
 import { createMutation, useQueryClient } from '@tanstack/solid-query';
 import { useConversations, useSubscriptions, useConfig } from '@openlobster/ui/hooks';
 import { SEND_MESSAGE_MUTATION, DELETE_USER_MUTATION } from '@openlobster/ui/graphql/mutations';
@@ -242,6 +242,7 @@ const MessageThread: Component<MessageThreadProps> = (props) => {
               )}
             </For>
             <Show when={msg.content}>
+              {/* eslint-disable-next-line solid/no-innerhtml */}
               <div class="msg__attachment-caption" innerHTML={renderMarkdown(displayContent)} />
             </Show>
           </div>
@@ -249,6 +250,7 @@ const MessageThread: Component<MessageThreadProps> = (props) => {
 
         {/* If no attachments, render body normally */}
         <Show when={(msg.attachments ?? []).length === 0}>
+          {/* eslint-disable-next-line solid/no-innerhtml */}
           <div class="msg__body" innerHTML={renderMarkdown(displayContent)} />
         </Show>
       </div>
@@ -280,7 +282,10 @@ const MessageThread: Component<MessageThreadProps> = (props) => {
       </Show>
 
       <For each={visibleMessages()}>
-        {(msg, localIndex) => renderMessage(msg, windowStart() + localIndex())}
+        {(msg, localIndex) => {
+          const node = createMemo(() => renderMessage(msg, windowStart() + localIndex()));
+          return <>{node()}</>;
+        }}
       </For>
     </div>
   );
@@ -307,23 +312,32 @@ const ChatView: Component = () => {
 
   useSubscriptions({
     url: wsUrl,
-    onMessageSent: (data: any) => {
-      const payload = typeof data === 'string' ? JSON.parse(data) : data;
-      if (String(payload.ChannelType || '').toLowerCase() === 'loopback') return;
-      const conversationId = payload.ChannelID;
+    onMessageSent: (data: unknown) => {
+      const payload =
+        typeof data === 'string'
+          ? (JSON.parse(data) as Record<string, unknown>)
+          : (data as Record<string, unknown>);
+      if (String(payload['ChannelType'] ?? '').toLowerCase() === 'loopback') return;
+      const conversationId = payload['ChannelID'] as string | undefined;
       if (!conversationId) return;
 
       const newMessage: Message = {
-        id: payload.MessageID,
+        id: payload['MessageID'] as string,
         conversationId,
-        role: payload.Role || 'user',
-        content: payload.Content || '',
-        createdAt: payload.Timestamp || new Date().toISOString(),
-        attachments: Array.isArray(payload.Attachments) ? payload.Attachments.map((a: any) => ({
-          type: a.Type || a.type || '',
-          filename: a.Filename || a.filename || undefined,
-          mimeType: a.MIMEType || a.mimeType || a.mime_type || undefined,
-        })) : undefined,
+        role: ((payload['Role'] as string) || 'user') as Message['role'],
+        content: (payload['Content'] as string) || '',
+        createdAt: (payload['Timestamp'] as string) || new Date().toISOString(),
+        attachments: Array.isArray(payload['Attachments'])
+          ? (payload['Attachments'] as Record<string, unknown>[]).map((a) => ({
+              type: (a['Type'] as string) || (a['type'] as string) || '',
+              filename: (a['Filename'] as string) || (a['filename'] as string) || undefined,
+              mimeType:
+                (a['MIMEType'] as string) ||
+                (a['mimeType'] as string) ||
+                (a['mime_type'] as string) ||
+                undefined,
+            }))
+          : undefined,
       };
 
       const slot = queryClient.getQueryData<{ append: (m: Message) => void }>(['messages-append', conversationId]);

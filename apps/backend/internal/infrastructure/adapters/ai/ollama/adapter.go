@@ -447,9 +447,7 @@ func paramProperties(p map[string]interface{}) *ToolPropertiesMap {
 		}
 		prop.Description, _ = propMap["description"].(string)
 		if enums, ok := propMap["enum"].([]interface{}); ok {
-			for _, e := range enums {
-				prop.Enum = append(prop.Enum, e)
-			}
+			prop.Enum = append(prop.Enum, enums...)
 		}
 		out.Set(k, prop)
 	}
