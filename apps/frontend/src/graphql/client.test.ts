@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef */
+ 
 
 import { describe, it, expect, vi } from 'vitest';
 

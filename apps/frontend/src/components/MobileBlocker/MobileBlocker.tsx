@@ -1,6 +1,6 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
 
-import type { Component } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { createSignal, onMount, Show } from "solid-js";
 import { t } from "../../App";
 import "./MobileBlocker.css";
@@ -9,7 +9,7 @@ import "./MobileBlocker.css";
  * MobileBlocker component prevents mobile devices from accessing the application.
  * Displays a fullscreen message instructing users to access from a desktop browser.
  */
-const MobileBlocker: Component<{ children: any }> = (props) => {
+const MobileBlocker: Component<{ children: JSX.Element }> = (props) => {
   const [isMobile, setIsMobile] = createSignal(false);
 
   onMount(() => {

@@ -41,6 +41,12 @@ func (a *HostAdapter) Execute(ctx context.Context, cmd string, opts ...ports.Ter
 	executable := parts[0]
 	args := parts[1:]
 
+	if options.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Second)
+		defer cancel()
+	}
+
 	c := exec.CommandContext(ctx, executable, args...)
 	c.Env = FilterOpenLobsterFromEnv(os.Environ())
 	if options.WorkingDir != "" {
@@ -50,12 +56,6 @@ func (a *HostAdapter) Execute(ctx context.Context, cmd string, opts ...ports.Ter
 		// Filter user-provided env so OPENLOBSTER_* (e.g. OPENLOBSTER_SECRET_KEY)
 		// can never be passed through even if the LLM requests it.
 		c.Env = append(c.Env, FilterOpenLobsterFromEnv(options.Env)...)
-	}
-
-	if options.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(options.Timeout)*time.Second)
-		defer cancel()
 	}
 
 	out, err := c.CombinedOutput()

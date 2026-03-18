@@ -97,7 +97,6 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
 
     subscription = subscriptionMgr.subscribe({
       onPairingRequest: (event) => {
-        console.log("Pairing request received:", event);
         setPendingPairingsQueue((prev) => {
           const exists = prev.some((p) => p.requestID === event.requestID);
           return exists ? prev : [...prev, event];
@@ -106,13 +105,11 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
       },
       onConnected: () => {
         wsConnection.setConnected(true);
-        console.log("Subscription connected");
         // Fetch pairings that arrived while disconnected
         void fetchPendingPairings();
       },
       onDisconnected: () => {
         wsConnection.setConnected(false);
-        console.log("Subscription disconnected");
       },
       onError: (error) => {
         console.error("Subscription error:", error);
@@ -133,7 +130,6 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
   };
 
   const handlePairingApprove = async (requestID: string, userID: string, displayName: string) => {
-    console.log("Approve pairing:", requestID, "userID:", userID, "displayName:", displayName);
     try {
       await client.request(
         `
@@ -156,7 +152,6 @@ const AuthModals: Component<AuthModalsProps> = (props) => {
   };
 
   const handlePairingDeny = async (requestID: string, reason?: string) => {
-    console.log("Deny pairing:", requestID, reason);
     try {
       await client.request(
         `

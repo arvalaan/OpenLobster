@@ -37,7 +37,7 @@ const OAuthCallbackError: Component<OAuthCallbackErrorProps> = (props) => {
           {t("mcps.oauthCallbackErrorTitle")}
         </h1>
         <p class="oauth-callback-error__message">{props.message}</p>
-        <button class="oauth-callback-error__btn" onClick={props.onClose}>
+        <button class="oauth-callback-error__btn" onClick={() => props.onClose()}>
           {t("mcps.oauthCallbackErrorClose")}
         </button>
       </div>

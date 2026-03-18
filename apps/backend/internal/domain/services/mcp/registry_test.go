@@ -332,7 +332,7 @@ func TestToolRegistry_Dispatch_WithUserIDInContext(t *testing.T) {
 	tool.On("Execute", mock.Anything, mock.Anything).Return(json.RawMessage(`{}`), nil)
 	registry.RegisterInternal("my_tool", tool)
 
-	ctx := context.WithValue(context.Background(), "user_id", "user-1")
+	ctx := context.WithValue(context.Background(), ContextKeyUserID, "user-1")
 	result, err := registry.Dispatch(ctx, "my_tool", nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -347,7 +347,7 @@ func TestToolRegistry_Dispatch_UserDenied(t *testing.T) {
 	tool.On("Definition").Return(ToolDefinition{Name: "my_tool"})
 	registry.RegisterInternal("my_tool", tool)
 
-	ctx := context.WithValue(context.Background(), "user_id", "user-1")
+	ctx := context.WithValue(context.Background(), ContextKeyUserID, "user-1")
 	_, err := registry.Dispatch(ctx, "my_tool", nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not permitted")

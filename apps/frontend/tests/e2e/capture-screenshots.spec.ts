@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef */
+ 
 import { test } from '@playwright/test';
 
 test.skip('capture all view screenshots', async ({ page }) => {
@@ -14,14 +14,14 @@ test.skip('capture all view screenshots', async ({ page }) => {
   ];
 
   for (const view of views) {
-    // eslint-disable-next-line no-console
+     
     console.log(`\nCapturing screenshot for ${view.name}...`);
     await page.goto(view.path);
 
     // Wait for main content to load
     await page.waitForSelector('.app-shell', { timeout: 5000 }).catch(() => {});
 
-    // eslint-disable-next-line no-console
+     
     console.log(`✓ Screenshot test skipped for: ${view.name}`);
   }
 });

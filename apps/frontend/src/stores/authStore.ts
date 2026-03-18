@@ -25,14 +25,14 @@ export function getStoredToken(): string | null {
 export function saveToken(token: string): void {
   try {
     sessionStorage.setItem(TOKEN_KEY, token);
-  } catch {}
+  } catch { /* sessionStorage unavailable (private mode, SSR) */ }
   setNeedsAuth(false);
 }
 
 export function clearToken(): void {
   try {
     sessionStorage.removeItem(TOKEN_KEY);
-  } catch {}
+  } catch { /* sessionStorage unavailable (private mode, SSR) */ }
   setNeedsAuth(true);
 }
 

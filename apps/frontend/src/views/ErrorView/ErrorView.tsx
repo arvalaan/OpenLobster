@@ -14,10 +14,8 @@ interface ErrorViewProps {
  * Can be rendered fullscreen (404, 500) or within AppShell (400, 403).
  */
 const ErrorView: Component<ErrorViewProps> = (props) => {
-  const fullscreen = props.fullscreen ?? false;
-
   return (
-    <div class={fullscreen ? "error-view--fullscreen" : "error-view"}>
+    <div class={(props.fullscreen ?? false) ? "error-view--fullscreen" : "error-view"}>
       <div class="error-content">
         <h1 class="error-code">{t(`error.${props.code}.title`)}</h1>
         <p class="error-message">{t(`error.${props.code}.message`)}</p>

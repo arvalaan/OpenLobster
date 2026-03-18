@@ -1,12 +1,12 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef */
+ 
 
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@solidjs/testing-library';
 
 // Mock Router before importing components that use it
 vi.mock('@solidjs/router', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   A: (props: any) => <a {...props} />,
   useNavigate: () => vi.fn(),
 }));

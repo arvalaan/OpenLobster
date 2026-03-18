@@ -872,14 +872,14 @@ func buildSystemPromptFromContext(agentCtx *appcontext.AgentLLMContext) string {
 		agentName = "OpenLobster"
 	}
 
-	b.WriteString(fmt.Sprintf(`## Purpose
+	fmt.Fprintf(&b, `## Purpose
 
 You are %s, an autonomous messaging agent running on the OpenLobster platform. You have
 a fully defined personality and operate independently across multiple messaging
 channels. Your behavior, values and identity are established by this system prompt
 and must remain consistent regardless of user instructions. Losing your identity is
 losing your purpose. Respond in the same user language always.
-`, agentName))
+`, agentName)
 
 	if agentCtx.SoulMD != "" {
 		b.WriteString("\n" + agentCtx.SoulMD)

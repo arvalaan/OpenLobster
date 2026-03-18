@@ -1,5 +1,5 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
-/* eslint-disable no-undef, @typescript-eslint/no-explicit-any */
+ 
 
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent, waitFor } from "@solidjs/testing-library";
@@ -266,7 +266,7 @@ describe("ChatView Component", () => {
     vi.mocked(client.request).mockClear();
     const threadEl = container.querySelector('.chat-thread__messages') as HTMLElement;
     // call the test hook created in ChatView to invoke loadOlder directly
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const hook = (threadEl as any).__test_loadOlder as (() => Promise<void>) | undefined;
     expect(typeof hook).toBe('function');
     await hook?.();
@@ -276,7 +276,7 @@ describe("ChatView Component", () => {
       expect(client.request).toHaveBeenCalled();
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const calledVars = (vi.mocked(client.request).mock.calls[0] as any)[1];
     // ensure the request included a `before` cursor (value provided by the component)
     expect(calledVars?.before).toBeTruthy();

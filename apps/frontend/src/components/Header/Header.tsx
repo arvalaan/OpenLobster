@@ -52,8 +52,8 @@ interface HeaderProps {
 }
 
 const Header: Component<HeaderProps> = (props) => {
-  const graphqlClient = props.graphqlClient;
-  const agent = useAgent(graphqlClient as GraphQLClient);
+  // eslint-disable-next-line solid/reactivity
+  const agent = useAgent(props.graphqlClient as GraphQLClient);
   const tabs = createMemo(() => getTabs());
   const [pairingDropdownOpen, setPairingDropdownOpen] = createSignal(false);
 

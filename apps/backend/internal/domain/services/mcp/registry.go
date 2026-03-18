@@ -76,7 +76,7 @@ func (r *ToolRegistry) AllTools() []ToolDefinition {
 
 func (r *ToolRegistry) Dispatch(ctx context.Context, toolName string, params map[string]interface{}) (json.RawMessage, error) {
 	userID := "default"
-	if u, ok := ctx.Value("user_id").(string); ok {
+	if u, ok := ctx.Value(ContextKeyUserID).(string); ok {
 		userID = u
 	}
 

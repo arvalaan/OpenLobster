@@ -23,7 +23,7 @@ type EventHandler<T> = (event: T) => void;
 interface UseSubscriptionsOptions {
   url: string;
   onPairingRequest?: EventHandler<PairingRequestEvent>;
-  onMessageSent?: EventHandler<any>;
+  onMessageSent?: EventHandler<unknown>;
   onEvent?: EventHandler<SubscriptionEvent>;
   onError?: (error: Event) => void;
   onConnected?: () => void;

@@ -27,7 +27,7 @@ const Modal: Component<ModalProps> = (props) => {
             <h3 class="modal-title">{props.title}</h3>
             <button
               class="modal-close"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
               aria-label={t("common.closeAria")}
             >
               <span class="material-symbols-outlined">close</span>

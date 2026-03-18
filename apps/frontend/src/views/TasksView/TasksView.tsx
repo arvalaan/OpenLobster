@@ -158,14 +158,14 @@ const TasksView: Component = () => {
         <Show when={tasks.data && tasks.data.length > 0}>
         <table class="tasks-table">
           <colgroup>
-            <col style="width: 40px" />
-            <col style="width: auto" />
-            <col style="width: 160px" />
-            <col style="width: 100px" />
-            <col style="width: 90px" />
-            <col style="width: 72px" />
-            <col style="width: 130px" />
-            <col style="width: 80px" />
+            <col style={{"width":"40px"}} />
+            <col style={{"width":"auto"}} />
+            <col style={{"width":"160px"}} />
+            <col style={{"width":"100px"}} />
+            <col style={{"width":"90px"}} />
+            <col style={{"width":"72px"}} />
+            <col style={{"width":"130px"}} />
+            <col style={{"width":"80px"}} />
           </colgroup>
           <thead>
             <tr>

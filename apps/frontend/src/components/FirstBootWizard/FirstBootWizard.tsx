@@ -675,7 +675,7 @@ const FirstBootWizard: Component<FirstBootWizardProps> = (props) => {
                                       if (fb) fb.style.display = "";
                                     }}
                                   />
-                                  <span class="material-symbols-outlined" style="display:none">extension</span>
+                                  <span class="material-symbols-outlined" style={{"display":"none"}}>extension</span>
                                 </div>
                                 <div class="wizard-marketplace-card__body">
                                   <span class="wizard-marketplace-card__name">{server.name}</span>
@@ -708,7 +708,7 @@ const FirstBootWizard: Component<FirstBootWizardProps> = (props) => {
                               if (fb) fb.style.display = "";
                             }}
                           />
-                          <span class="material-symbols-outlined" style="display:none">extension</span>
+                          <span class="material-symbols-outlined" style={{"display":"none"}}>extension</span>
                         </div>
                         <div>
                           <h3 class="wizard-marketplace-detail__name">{server.name}</h3>

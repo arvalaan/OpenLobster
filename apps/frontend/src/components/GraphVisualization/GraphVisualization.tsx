@@ -157,14 +157,16 @@ export default function GraphVisualization(props: GraphVisualizationProps) {
     });
 
     // Handle node selection
+    // eslint-disable-next-line solid/reactivity
     cy.on('tap', 'node', (event) => {
       const node = event.target;
       const nodeData = node.data() as { id: string };
 
-      if (props.onNodeSelect) {
+      const onNodeSelect = props.onNodeSelect;
+      if (onNodeSelect) {
         // Look up the full node from props to preserve all fields (properties, createdAt, etc.)
         const fullNode = props.nodes.find(n => n.id === nodeData.id) ?? null;
-        props.onNodeSelect(fullNode);
+        onNodeSelect(fullNode);
       }
     });
 
@@ -246,7 +248,7 @@ export default function GraphVisualization(props: GraphVisualizationProps) {
       initialTemp: 200,
       coolingFactor: 0.95,
       minTemp: 1.0,
-    } as any);
+    } as Parameters<typeof cy.layout>[0]);
     
     layout.run();
     

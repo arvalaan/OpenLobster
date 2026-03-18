@@ -100,7 +100,7 @@ func (m *MemoryAdapter) SearchMemory(ctx context.Context, userID, query string) 
 		if !matched && queryLower != "" && len(queryWords) > 0 {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("[node_id:%s] %s\n", node.ID, node.Value))
+		fmt.Fprintf(&sb, "[node_id:%s] %s\n", node.ID, node.Value)
 		count++
 		if count >= 10 {
 			break
@@ -110,7 +110,7 @@ func (m *MemoryAdapter) SearchMemory(ctx context.Context, userID, query string) 
 	if sb.Len() == 0 && len(graph.Nodes) > 0 {
 		for _, node := range graph.Nodes {
 			if node.Type == "fact" {
-				sb.WriteString(fmt.Sprintf("[node_id:%s] %s\n", node.ID, node.Value))
+				fmt.Fprintf(&sb, "[node_id:%s] %s\n", node.ID, node.Value)
 				count++
 				if count >= 10 {
 					break

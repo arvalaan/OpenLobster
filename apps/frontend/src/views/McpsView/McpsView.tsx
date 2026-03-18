@@ -467,7 +467,7 @@ const McpsView: Component = () => {
                               if (fallback) fallback.style.display = '';
                             }}
                           />
-                          <span class="material-symbols-outlined server-icon" style="display:none">extension</span>
+                          <span class="material-symbols-outlined server-icon" style={{"display":"none"}}>extension</span>
                         </Show>
                       </div>
                       <h2 class="server-name">{server.name}</h2>

@@ -1,6 +1,6 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
 
-import type { Component } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { createSignal, onMount, Show } from "solid-js";
 import { t } from "../../App";
 import "./BrowserCheck.css";
@@ -10,7 +10,7 @@ import "./BrowserCheck.css";
  * Checks for required features: ES6 Proxy, Async/Await, Fetch API, CSS Grid, CSS Custom Properties.
  * Displays a fullscreen message if the browser doesn't meet minimum requirements.
  */
-const BrowserCheck: Component<{ children: any }> = (props) => {
+const BrowserCheck: Component<{ children: JSX.Element }> = (props) => {
   const [isCompatible, setIsCompatible] = createSignal(true);
 
   onMount(() => {
@@ -40,7 +40,7 @@ const BrowserCheck: Component<{ children: any }> = (props) => {
         // Check for modern ES6 features (arrow functions, array methods)
         const hasES6 = (function () {
           try {
-            return typeof (() => {}) === "function" && [1, 2].map((x) => x).length === 2;
+            return [1, 2].map((x) => x).length === 2;
           } catch {
             return false;
           }
@@ -55,7 +55,7 @@ const BrowserCheck: Component<{ children: any }> = (props) => {
           hasES6;
 
         setIsCompatible(compatible);
-      } catch (error) {
+      } catch {
         // If any check fails catastrophically, browser is incompatible
         setIsCompatible(false);
       }

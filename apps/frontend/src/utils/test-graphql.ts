@@ -41,10 +41,7 @@ async function testGraphQLMutation() {
       }),
     });
 
-    console.log("POST request sent to /graphql");
-    console.log("Response status:", response.status);
     const data = await response.json();
-    console.log("Response data:", data);
     return data;
   } catch (error) {
     console.error("GraphQL mutation failed:", error);

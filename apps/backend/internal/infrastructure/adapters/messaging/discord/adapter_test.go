@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,7 @@ func TestSplitMessageID_NoSeparator(t *testing.T) {
 
 func TestAdapter_HandleWebhook(t *testing.T) {
 	a, _ := NewAdapter("x")
-	msg, err := a.HandleWebhook(nil, nil)
+	msg, err := a.HandleWebhook(context.TODO(), nil)
 	assert.NoError(t, err)
 	assert.Nil(t, msg)
 }
@@ -54,7 +55,7 @@ func TestAdapter_GetCapabilities(t *testing.T) {
 func TestAdapter_ConvertAudioForPlatform(t *testing.T) {
 	a, _ := NewAdapter("x")
 	data := []byte{1, 2, 3}
-	out, fmt, err := a.ConvertAudioForPlatform(nil, data, "raw")
+	out, fmt, err := a.ConvertAudioForPlatform(context.TODO(), data, "raw")
 	assert.NoError(t, err)
 	assert.Equal(t, data, out)
 	assert.Equal(t, "ogg", fmt)
