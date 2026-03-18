@@ -1,7 +1,7 @@
 // Copyright (c) OpenLobster contributors. See LICENSE for details.
 
 import type { Component } from 'solid-js';
-import { For, Show, Suspense, createMemo, createSignal, onCleanup } from 'solid-js';
+import { For, Show, Suspense, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { createMutation, useQueryClient } from '@tanstack/solid-query';
 import { useMcpServers, useMcpUsers, useMcpTools, useToolPermissions, useConfig } from '@openlobster/ui/hooks';
 import {
@@ -227,6 +227,14 @@ const McpsView: Component = () => {
   const mcpUsers = useMcpUsers(client);
   const mcpTools = useMcpTools(client);
   const [selectedUserId, setSelectedUserId] = createSignal('');
+
+  // Auto-select first user (preferring the agent) when data loads.
+  createEffect(() => {
+    const users = mcpUsers.data;
+    if (!users || users.length === 0 || selectedUserId()) return;
+    const agent = users.find(u => u.isAgent);
+    setSelectedUserId((agent ?? users[0]).channelId);
+  });
   const perms = useToolPermissions(client, selectedUserId);
   /** Set of group keys that are currently collapsed. */
   const [collapsedGroups, setCollapsedGroups] = createSignal(new Set<string>());
@@ -325,6 +333,28 @@ const McpsView: Component = () => {
     } else {
       // Currently denied → remove explicit entry, reverts to allow-by-default.
       deletePermission.mutate({ userId: uid, toolName });
+    }
+  }
+
+  /** Pending group bulk operations (keyed by groupKey + mode). */
+  const [pendingGroupBulk, setPendingGroupBulk] = createSignal(new Set<string>());
+
+  async function bulkGroup(groupKey: string, tools: Array<{ name: string }>, mode: 'allow' | 'deny') {
+    const uid = selectedUserId();
+    if (!uid || tools.length === 0) return;
+    const key = `${groupKey}:${mode}`;
+    setPendingGroupBulk(prev => new Set([...prev, key]));
+    try {
+      await Promise.all(
+        tools.map(tool =>
+          mode === 'allow'
+            ? client.request(DELETE_TOOL_PERMISSION_MUTATION, { userId: uid, toolName: tool.name })
+            : client.request(SET_TOOL_PERMISSION_MUTATION, { userId: uid, toolName: tool.name, mode: 'deny' }),
+        ),
+      );
+    } finally {
+      setPendingGroupBulk(prev => { const next = new Set(prev); next.delete(key); return next; });
+      void queryClient.invalidateQueries({ queryKey: ['toolPermissions', uid] });
     }
   }
 
@@ -520,38 +550,52 @@ const McpsView: Component = () => {
             }
           >
           <div class="permissions-layout">
-            {/* Left panel — user list */}
-            <aside class="permissions-sidebar">
-              <div class="permissions-sidebar__header">
-                <span class="material-symbols-outlined permissions-sidebar__icon">group</span>
-                <span class="permissions-sidebar__title">{t('mcps.users')}</span>
-              </div>
-              <ul class="permissions-user-list">
-                <For each={mcpUsers.data ?? []}>
-                  {(user) => (
-                    <li
-                      class="permissions-user-item"
-                      classList={{
-                        'permissions-user-item--active': selectedUserId() === user.channelId,
-                        'permissions-user-item--agent': !!user.isAgent,
-                      }}
-                      onClick={() => setSelectedUserId(user.channelId)}
-                    >
-                      <span class="material-symbols-outlined permissions-user-item__avatar">
-                        {user.isAgent ? 'smart_toy' : 'account_circle'}
-                      </span>
-                      <span class="permissions-user-item__name">{user.displayName}</span>
-                      <Show when={user.isAgent}>
-                        <span class="permissions-user-item__agent-badge">{t('mcps.bot')}</span>
-                      </Show>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </aside>
-
-            {/* Right panel — tool permission matrix */}
+            {/* Tool permission matrix */}
             <main class="permissions-main">
+                <div class="permissions-main__header">
+                  <div class="permissions-user-select">
+                    <For each={mcpUsers.data ?? []}>
+                      {(user) => (
+                        <button
+                          class="permissions-user-chip"
+                          classList={{
+                            'permissions-user-chip--active': selectedUserId() === user.channelId,
+                            'permissions-user-chip--agent': !!user.isAgent,
+                          }}
+                          onClick={() => setSelectedUserId(user.channelId)}
+                        >
+                          <span class="material-symbols-outlined permissions-user-chip__icon">
+                            {user.isAgent ? 'smart_toy' : 'account_circle'}
+                          </span>
+                          <span>{user.displayName}</span>
+                          <Show when={user.isAgent}>
+                            <span class="permissions-user-chip__badge">{t('mcps.bot')}</span>
+                          </Show>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                  <Show when={selectedUserId()}>
+                    <div class="permissions-bulk-actions">
+                      <button
+                        class="btn btn-sm btn-bulk-allow"
+                        disabled={bulkPermission.isPending || groupedTools().size === 0}
+                        onClick={() => bulkPermission.mutate({ userId: selectedUserId(), mode: 'allow' })}
+                      >
+                        <span class="material-symbols-outlined">done_all</span>
+                        {t('permissions.allowAll')}
+                      </button>
+                      <button
+                        class="btn btn-sm btn-bulk-deny"
+                        disabled={bulkPermission.isPending || groupedTools().size === 0}
+                        onClick={() => bulkPermission.mutate({ userId: selectedUserId(), mode: 'deny' })}
+                      >
+                        <span class="material-symbols-outlined">remove_done</span>
+                        {t('permissions.denyAll')}
+                      </button>
+                    </div>
+                  </Show>
+                </div>
               <Show
                 when={selectedUserId()}
                 fallback={
@@ -563,34 +607,6 @@ const McpsView: Component = () => {
                   </div>
                 }
               >
-                <div class="permissions-main__header">
-                  <div class="permissions-policy-note">
-                    <span class="material-symbols-outlined permissions-policy-note__icon">
-                      info
-                    </span>
-                    <span class="permissions-policy-note__text">
-                      {t('permissions.defaultDeny')}
-                    </span>
-                  </div>
-                  <div class="permissions-bulk-actions">
-                    <button
-                      class="btn btn-sm btn-bulk-allow"
-                      disabled={bulkPermission.isPending || groupedTools().size === 0}
-                      onClick={() => bulkPermission.mutate({ userId: selectedUserId(), mode: 'allow' })}
-                    >
-                      <span class="material-symbols-outlined">done_all</span>
-                      {t('permissions.allowAll')}
-                    </button>
-                    <button
-                      class="btn btn-sm btn-bulk-deny"
-                      disabled={bulkPermission.isPending || groupedTools().size === 0}
-                      onClick={() => bulkPermission.mutate({ userId: selectedUserId(), mode: 'deny' })}
-                    >
-                      <span class="material-symbols-outlined">remove_done</span>
-                      {t('permissions.denyAll')}
-                    </button>
-                  </div>
-                </div>
 
                 <Show
                   when={groupedTools().size > 0}
@@ -628,7 +644,24 @@ const McpsView: Component = () => {
                               >
                                 <span class="material-symbols-outlined permissions-tool-group__icon">{icon}</span>
                                 <span class="permissions-tool-group__name">{displayName}</span>
-                                <span class="permissions-tool-group__count">{tools.length}</span>
+                                <div class="permissions-tool-group__bulk" onClick={e => e.stopPropagation()}>
+                                  <button
+                                    class="permissions-group-btn permissions-group-btn--allow"
+                                    disabled={pendingGroupBulk().has(`${groupKey}:allow`)}
+                                    onClick={() => bulkGroup(groupKey, tools, 'allow')}
+                                    title={t('permissions.allowAll')}
+                                  >
+                                    <span class="material-symbols-outlined">done_all</span>
+                                  </button>
+                                  <button
+                                    class="permissions-group-btn permissions-group-btn--deny"
+                                    disabled={pendingGroupBulk().has(`${groupKey}:deny`)}
+                                    onClick={() => bulkGroup(groupKey, tools, 'deny')}
+                                    title={t('permissions.denyAll')}
+                                  >
+                                    <span class="material-symbols-outlined">remove_done</span>
+                                  </button>
+                                </div>
                                 <span
                                   class="material-symbols-outlined permissions-tool-group__chevron"
                                   classList={{ 'permissions-tool-group__chevron--collapsed': collapsedGroups().has(groupKey) }}

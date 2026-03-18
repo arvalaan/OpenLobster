@@ -74,7 +74,6 @@ function getDefaultFormValues(): Record<string, unknown> {
     ollamaApiKey: "",
     anthropicApiKey: "",
     dockerModelRunnerEndpoint: "http://localhost:12434/engines/v1",
-    dockerModelRunnerModel: "ai/smollm2",
     capabilities: {
       browser: false,
       terminal: false,
@@ -286,7 +285,6 @@ const FirstBootWizard: Component<FirstBootWizardProps> = (props) => {
           ollamaApiKey: config.agent?.ollamaApiKey ?? "",
           anthropicApiKey: config.agent?.anthropicApiKey ?? "",
           dockerModelRunnerEndpoint: config.agent?.dockerModelRunnerEndpoint ?? "",
-          dockerModelRunnerModel: config.agent?.dockerModelRunnerModel ?? "",
           capabilities: config.capabilities ?? getDefaultFormValues().capabilities,
           graphqlBaseUrl: config.graphql?.baseUrl ?? "",
           channelTelegramEnabled: config.channelSecrets?.telegramEnabled ?? false,
@@ -335,7 +333,6 @@ const FirstBootWizard: Component<FirstBootWizardProps> = (props) => {
               anthropicApiKey: v.anthropicApiKey ?? "",
                 wizardCompleted: true,
               dockerModelRunnerEndpoint: v.dockerModelRunnerEndpoint ?? "",
-              dockerModelRunnerModel: v.dockerModelRunnerModel ?? "",
               capabilities: caps,
               graphqlBaseUrl: v.graphqlBaseUrl ?? "",
               channelTelegramEnabled: v.channelTelegramEnabled ?? false,
@@ -540,12 +537,6 @@ const FirstBootWizard: Component<FirstBootWizardProps> = (props) => {
                       type="text"
                       value={(formValues().dockerModelRunnerEndpoint as string) ?? ""}
                       onInput={(e) => handleFieldChange("dockerModelRunnerEndpoint", e.currentTarget.value)}
-                    />
-                    <Input
-                      label={t("settings.field.dockerModelRunnerModel")}
-                      type="text"
-                      value={(formValues().dockerModelRunnerModel as string) ?? ""}
-                      onInput={(e) => handleFieldChange("dockerModelRunnerModel", e.currentTarget.value)}
                     />
                   </Show>
                 </div>

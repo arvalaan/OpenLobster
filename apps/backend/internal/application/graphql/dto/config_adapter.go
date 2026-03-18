@@ -100,61 +100,61 @@ func (a *ConfigUpdateAdapter) applyProviderKeys(input map[string]interface{}) {
 	}
 	switch provider {
 	case "openrouter":
-		if v, ok := input["apiKey"].(string); ok {
+		if v, ok := input["apiKey"].(string); ok && v != "" {
 			viper.Set("providers.openrouter.api_key", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.openrouter.default_model", v)
 		}
 	case "ollama":
-		if v, ok := input["ollamaHost"].(string); ok {
+		if v, ok := input["ollamaHost"].(string); ok && v != "" {
 			viper.Set("providers.ollama.endpoint", v)
 		}
-		if v, ok := input["ollamaApiKey"].(string); ok {
+		if v, ok := input["ollamaApiKey"].(string); ok && v != "" {
 			viper.Set("providers.ollama.api_key", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.ollama.default_model", v)
 		}
 	case "openai":
-		if v, ok := input["apiKey"].(string); ok {
+		if v, ok := input["apiKey"].(string); ok && v != "" {
 			viper.Set("providers.openai.api_key", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.openai.model", v)
 		}
-		if v, ok := input["baseURL"].(string); ok {
+		if v, ok := input["baseURL"].(string); ok && v != "" {
 			viper.Set("providers.openai.base_url", v)
 		}
 	case "openai-compatible":
-		if v, ok := input["apiKey"].(string); ok {
+		if v, ok := input["apiKey"].(string); ok && v != "" {
 			viper.Set("providers.openaicompat.api_key", v)
 		}
-		if v, ok := input["baseURL"].(string); ok {
+		if v, ok := input["baseURL"].(string); ok && v != "" {
 			viper.Set("providers.openaicompat.base_url", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.openaicompat.model", v)
 		}
 	case "anthropic":
-		if v, ok := input["anthropicApiKey"].(string); ok {
+		if v, ok := input["anthropicApiKey"].(string); ok && v != "" {
 			viper.Set("providers.anthropic.api_key", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.anthropic.model", v)
 		}
 	case "docker-model-runner":
-		if v, ok := input["dockerModelRunnerEndpoint"].(string); ok {
+		if v, ok := input["dockerModelRunnerEndpoint"].(string); ok && v != "" {
 			viper.Set("providers.docker_model_runner.endpoint", v)
 		}
-		if v, ok := input["dockerModelRunnerModel"].(string); ok {
+		if v, ok := input["dockerModelRunnerModel"].(string); ok && v != "" {
 			viper.Set("providers.docker_model_runner.default_model", v)
 		}
 	case "opencode-zen":
-		if v, ok := input["apiKey"].(string); ok {
+		if v, ok := input["apiKey"].(string); ok && v != "" {
 			viper.Set("providers.opencode.api_key", v)
 		}
-		if v, ok := input["model"].(string); ok {
+		if v, ok := input["model"].(string); ok && v != "" {
 			viper.Set("providers.opencode.model", v)
 		}
 	}

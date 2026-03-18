@@ -1,6 +1,3 @@
-# Root schema — scalar y schema directive
-# Query, Mutation, Subscription se definen/extienden en los archivos por dominio
-
 scalar JSON
 
 schema {

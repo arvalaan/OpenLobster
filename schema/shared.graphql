@@ -1,5 +1,3 @@
-# Tipos compartidos (result types, inputs) usados por múltiples dominios
-
 type MutationResult {
   success: Boolean!
   error:   String

@@ -133,17 +133,6 @@ export const configSchema: ConfigSchema = {
         },
       },
     },
-    dockerModelRunnerModel: {
-      type: "string",
-      title: "Docker Model Runner Model",
-      description: "Model name to use with Docker Model Runner (e.g. ai/smollm2)",
-      default: "ai/smollm2",
-      dependencies: {
-        provider: {
-          properties: { provider: { const: "docker-model-runner" } },
-        },
-      },
-    },
 
     // ========== AGENT CAPABILITIES ==========
     capabilities: {
@@ -592,7 +581,6 @@ export const configGroups = [
       "anthropicApiKey",
       // Docker Model Runner
       "dockerModelRunnerEndpoint",
-      "dockerModelRunnerModel",
     ],
   },
   {

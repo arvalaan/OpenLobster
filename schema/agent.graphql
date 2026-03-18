@@ -77,7 +77,6 @@ type KillSubAgentResult {
   error:   String
 }
 
-# Agent define Query/Mutation base; otros dominios usan extend
 type Query {
   agent:     Agent
   channels:  [Channel!]!

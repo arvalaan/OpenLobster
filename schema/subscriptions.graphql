@@ -6,7 +6,6 @@ type EventPayload {
   data:      JSON
 }
 
-# Subscription se define aquí; otros dominios no añaden subscriptions
 type Subscription {
   events(eventType: String): EventPayload
 
