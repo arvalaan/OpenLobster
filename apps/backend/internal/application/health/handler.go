@@ -5,15 +5,15 @@ import (
 	"net/http"
 )
 
-// Handler sirve el endpoint /health.
+// Handler serves GET /health.
 type Handler struct{}
 
-// NewHandler crea el handler HTTP para health.
+// NewHandler returns the HTTP health check handler.
 func NewHandler() *Handler {
 	return &Handler{}
 }
 
-// ServeHTTP escribe un JSON de health.
+// ServeHTTP returns JSON {"status":"ok"}.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")

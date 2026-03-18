@@ -1,10 +1,6 @@
-<!-- English-first contribution guide with a short Spanish note below -->
-
 # Contributing to OpenLobster
 
 Thank you for contributing! This document explains how to open issues and pull requests, tests and linting expectations, and other workflows specific to this repository.
-
-ES (breve): Gracias por contribuir. Sigue los pasos indicados abajo para issues, PRs, pruebas y estilo.
 
 ---
 
@@ -35,6 +31,14 @@ ES (breve): Gracias por contribuir. Sigue los pasos indicados abajo para issues,
 - [ ] I updated user-facing documentation when applicable (docs/ or README)
 - [ ] I did not commit secrets or personal config files
 - [ ] Database migrations (if any) are included and tested
+
+## Git pre-commit hook
+
+After cloning, install the hook (copies [.github/hooks/pre-commit](.github/hooks/pre-commit) to `.git/hooks/`):
+
+```bash
+pnpm run hooks:install
+```
 
 ## Local development — useful commands
 
@@ -126,4 +130,3 @@ Adjust commands to your local environment; CI may run slightly different command
 
 ---
 
-If you'd like, I can also create a short `CONTRIBUTING-ES.md` with a full Spanish translation.

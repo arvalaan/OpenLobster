@@ -163,8 +163,12 @@ type UserChannelRepositoryPort interface {
 	// to the last channel through which the bot and user communicated.
 	GetLastChannelForUser(ctx context.Context, userID string) (channelType, platformChannelID string, err error)
 	// GetUserIDByName resolves the users.id UUID for a given display name
-	// (users.name). Returns an empty string when no user with that name exists.
+	// (users.name). Matching is case-insensitive on trimmed name.
 	GetUserIDByName(ctx context.Context, name string) (string, error)
+	// ResolveChannelByStoredUsername finds platform_user_id and channel (telegram,
+	// discord, …) by the username stored in user_channels (paired handle). If
+	// platform is empty, uses the row with the latest last_seen among matches.
+	ResolveChannelByStoredUsername(ctx context.Context, username, platform string) (channelType, platformUserID string, err error)
 	// UpdateLastSeen updates last_seen for the given (channelType, platformUserID).
 	// Call when the user sends a message so GetLastChannelForUser returns the correct channel.
 	UpdateLastSeen(ctx context.Context, channelType, platformUserID string) error

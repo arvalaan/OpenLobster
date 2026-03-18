@@ -10,7 +10,7 @@ import (
 	"github.com/neirth/openlobster/internal/domain/events"
 )
 
-// allEventTypes lista todos los tipos de evento para subscribeAll.
+// allEventTypes lists every event type for subscribeAll.
 var allEventTypes = []string{
 	events.EventMessageReceived, events.EventMessageSent, events.EventMessageProcessed,
 	events.EventSessionStarted, events.EventSessionEnded,

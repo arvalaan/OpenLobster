@@ -562,7 +562,16 @@ func TestSendMessageTool_Execute_MissingParams(t *testing.T) {
 	_, err := tool.Execute(context.Background(), map[string]interface{}{})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "required")
+	assert.Contains(t, err.Error(), "content")
+}
+
+func TestSendMessageTool_Execute_NoRecipient(t *testing.T) {
+	tool := &SendMessageTool{Tools: InternalTools{Messaging: new(MockMessagingService)}}
+	_, err := tool.Execute(context.Background(), map[string]interface{}{
+		"content": "hello",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one recipient")
 }
 
 func TestSendMessageTool_Execute_ChannelWithoutChannelType_ReturnsError(t *testing.T) {
@@ -576,7 +585,7 @@ func TestSendMessageTool_Execute_ChannelWithoutChannelType_ReturnsError(t *testi
 	})
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "channel_type")
+	assert.Contains(t, err.Error(), "together")
 }
 
 func TestSendMessageTool_Execute_Error(t *testing.T) {
@@ -599,14 +608,52 @@ func TestSendMessageTool_Execute_Error(t *testing.T) {
 	mockMsg.AssertExpectations(t)
 }
 
-func TestSendMessageTool_Execute_WithUserID_UsesLastChannel(t *testing.T) {
+func TestSendMessageTool_Execute_WithUserName(t *testing.T) {
 	mockMsg := new(MockMessagingService)
-	mockMsg.On("SendMessage", mock.Anything, "telegram", "tg-12345", "Hi user").Return(nil)
+	mockMsg.On("SendMessage", mock.Anything, "telegram", "tg-12345", "Hi Alice").Return(nil)
 
-	mockResolver := &mockLastChannelResolver{
-		getLastChannel: func(ctx context.Context, userID string) (string, string, error) {
-			if userID == "user-uuid-1" {
-				return "telegram", "tg-12345", nil
+	resolver := &mockUserNameResolver{
+		getUserIDByName: func(ctx context.Context, name string) (string, error) {
+			if name == "Alice" {
+				return "uuid-alice", nil
+			}
+			return "", nil
+		},
+		mockLastChannelResolver: mockLastChannelResolver{
+			getLastChannel: func(ctx context.Context, userID string) (string, string, error) {
+				if userID == "uuid-alice" {
+					return "telegram", "tg-12345", nil
+				}
+				return "", "", nil
+			},
+		},
+	}
+
+	tool := &SendMessageTool{
+		Tools: InternalTools{
+			Messaging:           mockMsg,
+			LastChannelResolver: resolver,
+		},
+	}
+
+	result, err := tool.Execute(context.Background(), map[string]interface{}{
+		"user_name": "Alice",
+		"content":   "Hi Alice",
+	})
+
+	assert.NoError(t, err)
+	assert.Contains(t, string(result), "sent")
+	mockMsg.AssertExpectations(t)
+}
+
+func TestSendMessageTool_Execute_WithStoredUsername(t *testing.T) {
+	mockMsg := new(MockMessagingService)
+	mockMsg.On("SendMessage", mock.Anything, "telegram", "555666777", "hey").Return(nil)
+
+	repo := &sendMessageFullRepoMock{
+		resolveByUsername: func(ctx context.Context, username, platform string) (string, string, error) {
+			if (username == "bob" || username == "@bob") && platform == "" {
+				return "telegram", "555666777", nil
 			}
 			return "", "", nil
 		},
@@ -615,18 +662,91 @@ func TestSendMessageTool_Execute_WithUserID_UsesLastChannel(t *testing.T) {
 	tool := &SendMessageTool{
 		Tools: InternalTools{
 			Messaging:           mockMsg,
-			LastChannelResolver: mockResolver,
+			LastChannelResolver: repo,
 		},
 	}
 
 	result, err := tool.Execute(context.Background(), map[string]interface{}{
-		"user_id": "user-uuid-1",
-		"content": "Hi user",
+		"username": "@bob",
+		"content":  "hey",
 	})
-
 	assert.NoError(t, err)
 	assert.Contains(t, string(result), "sent")
 	mockMsg.AssertExpectations(t)
+}
+
+func TestSendMessageTool_Execute_WithStoredUsernameDiscord(t *testing.T) {
+	mockMsg := new(MockMessagingService)
+	mockMsg.On("SendMessage", mock.Anything, "discord", "snowflake-99", "hi").Return(nil)
+
+	repo := &sendMessageFullRepoMock{
+		resolveByUsername: func(ctx context.Context, username, platform string) (string, string, error) {
+			if username == "carol" && platform == "discord" {
+				return "discord", "snowflake-99", nil
+			}
+			return "", "", nil
+		},
+	}
+
+	tool := &SendMessageTool{
+		Tools: InternalTools{
+			Messaging:           mockMsg,
+			LastChannelResolver: repo,
+		},
+	}
+
+	result, err := tool.Execute(context.Background(), map[string]interface{}{
+		"username":          "carol",
+		"username_platform": "discord",
+		"content":           "hi",
+	})
+	assert.NoError(t, err)
+	assert.Contains(t, string(result), "sent")
+	mockMsg.AssertExpectations(t)
+}
+
+// sendMessageFullRepoMock implements ports.UserChannelRepositoryPort for send_message tests.
+type sendMessageFullRepoMock struct {
+	getUserIDByName   func(ctx context.Context, name string) (string, error)
+	getLastChannel    func(ctx context.Context, userID string) (string, string, error)
+	resolveByUsername func(ctx context.Context, username, platform string) (string, string, error)
+}
+
+func (m *sendMessageFullRepoMock) ExistsByPlatformUserID(ctx context.Context, platformUserID string) (bool, error) {
+	return false, nil
+}
+func (m *sendMessageFullRepoMock) GetUserIDByPlatformUserID(ctx context.Context, platformUserID string) (string, error) {
+	return "", nil
+}
+func (m *sendMessageFullRepoMock) GetDisplayNameByPlatformUserID(ctx context.Context, platformUserID string) (string, error) {
+	return "", nil
+}
+func (m *sendMessageFullRepoMock) GetDisplayNameByUserID(ctx context.Context, userID string) (string, error) {
+	return "", nil
+}
+func (m *sendMessageFullRepoMock) Create(ctx context.Context, userID, channelType, platformUserID, username string) error {
+	return nil
+}
+func (m *sendMessageFullRepoMock) GetLastChannelForUser(ctx context.Context, userID string) (string, string, error) {
+	if m.getLastChannel != nil {
+		return m.getLastChannel(ctx, userID)
+	}
+	return "", "", nil
+}
+func (m *sendMessageFullRepoMock) GetUserIDByName(ctx context.Context, name string) (string, error) {
+	if m.getUserIDByName != nil {
+		return m.getUserIDByName(ctx, name)
+	}
+	return "", nil
+}
+func (m *sendMessageFullRepoMock) ResolveChannelByStoredUsername(ctx context.Context, username, platform string) (string, string, error) {
+	if m.resolveByUsername != nil {
+		return m.resolveByUsername(ctx, username, platform)
+	}
+	return "", "", nil
+}
+func (m *sendMessageFullRepoMock) UpdateLastSeen(ctx context.Context, channelType, platformUserID string) error {
+	return nil
 }
 
 type mockLastChannelResolver struct {

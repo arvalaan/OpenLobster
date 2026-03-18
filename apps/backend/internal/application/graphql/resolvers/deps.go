@@ -332,7 +332,7 @@ func cronFieldMatches(f string, value int) bool {
 	return false
 }
 
-// SpawnSubAgent implementa agent.Provider.
+// SpawnSubAgent implements agent.Provider.
 func (d *Deps) SpawnSubAgent(ctx context.Context, name, model, task string) (string, error) {
 	if d.SubAgentSvc == nil {
 		return "", nil
@@ -340,7 +340,7 @@ func (d *Deps) SpawnSubAgent(ctx context.Context, name, model, task string) (str
 	return d.SubAgentSvc.Spawn(ctx, name, model, task)
 }
 
-// KillSubAgent implementa agent.Provider.
+// KillSubAgent implements agent.Provider.
 func (d *Deps) KillSubAgent(ctx context.Context, id string) error {
 	if d.SubAgentSvc == nil {
 		return nil
@@ -399,7 +399,7 @@ func (d *Deps) Messages(ctx context.Context, conversationID string, before *stri
 	return out, nil
 }
 
-// SendMessage implementa conversations.Provider.
+// SendMessage implements conversations.Provider.
 // Uses the unified MessageHandler when available (one channel, one message, one response).
 func (d *Deps) SendMessage(ctx context.Context, conversationID, content string) (*dto.SendMessageResult, error) {
 	if d.MessageDispatcher != nil {
@@ -494,7 +494,7 @@ func (d *Deps) processWithLLM(ctx context.Context, conversationID, content strin
 	}
 }
 
-// DeleteUser implementa conversations.Provider.
+// DeleteUser implements conversations.Provider.
 func (d *Deps) DeleteUser(ctx context.Context, conversationID string) error {
 	if d.ConvPort == nil {
 		return nil

@@ -5,6 +5,7 @@ package user_channel
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,9 +89,118 @@ func (r *repository) GetLastChannelForUser(ctx context.Context, userID string) (
 }
 
 func (r *repository) GetUserIDByName(ctx context.Context, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil
+	}
 	var id string
-	err := r.db.WithContext(ctx).Raw("SELECT id FROM users WHERE name = ? LIMIT 1", name).Scan(&id).Error
+	err := r.db.WithContext(ctx).Raw(
+		"SELECT id FROM users WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1", name,
+	).Scan(&id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
 	return id, err
+}
+
+func normalizeStoredUsername(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "@")
+	return strings.ToLower(s)
+}
+
+// usernameContainsSQL returns a dialect-specific predicate "needle appears in normalized username column".
+func usernameContainsSQL(dialect, normExpr string) string {
+	switch dialect {
+	case "postgres":
+		return `POSITION(? IN ` + normExpr + `) > 0`
+	case "mysql":
+		return `LOCATE(?, ` + normExpr + `) > 0`
+	default:
+		return `INSTR(` + normExpr + `, ?) > 0`
+	}
+}
+
+func (r *repository) ResolveChannelByStoredUsername(ctx context.Context, username, platform string) (string, string, error) {
+	u := normalizeStoredUsername(username)
+	if u == "" {
+		return "", "", nil
+	}
+	platform = strings.TrimSpace(strings.ToLower(platform))
+
+	normExpr := `LOWER(TRIM(REPLACE(username, '@', '')))`
+	containsPred := usernameContainsSQL(r.db.Name(), normExpr)
+
+	type rowT struct {
+		ChannelID      string    `gorm:"column:channel_id"`
+		PlatformUserID string    `gorm:"column:platform_user_id"`
+		NormUsername   string    `gorm:"column:norm_username"`
+		LastSeen       time.Time `gorm:"column:last_seen"`
+	}
+	var rows []rowT
+
+	var err error
+	if platform != "" {
+		err = r.db.WithContext(ctx).Raw(`
+			SELECT channel_id, platform_user_id,
+				`+normExpr+` AS norm_username,
+				last_seen
+			FROM user_channels
+			WHERE channel_id = ?
+			AND (`+normExpr+` = ? OR `+containsPred+`)
+			ORDER BY last_seen DESC
+			LIMIT 80`, platform, u, u).Scan(&rows).Error
+	} else {
+		err = r.db.WithContext(ctx).Raw(`
+			SELECT channel_id, platform_user_id,
+				`+normExpr+` AS norm_username,
+				last_seen
+			FROM user_channels
+			WHERE `+normExpr+` = ? OR `+containsPred+`
+			ORDER BY last_seen DESC
+			LIMIT 80`, u, u).Scan(&rows).Error
+	}
+	if err != nil {
+		return "", "", err
+	}
+	cands := make([]usernameCandidate, 0, len(rows))
+	for _, row := range rows {
+		cands = append(cands, usernameCandidate(row))
+	}
+	if ct, pid, ok := pickBestUsernameMatch(cands, u); ok {
+		return ct, pid, nil
+	}
+
+	rows = nil
+	if platform != "" {
+		err = r.db.WithContext(ctx).Raw(`
+			SELECT channel_id, platform_user_id,
+				LOWER(TRIM(REPLACE(username, '@', ''))) AS norm_username,
+				last_seen
+			FROM user_channels
+			WHERE channel_id = ?
+			ORDER BY last_seen DESC
+			LIMIT 200`, platform).Scan(&rows).Error
+	} else {
+		err = r.db.WithContext(ctx).Raw(`
+			SELECT channel_id, platform_user_id,
+				LOWER(TRIM(REPLACE(username, '@', ''))) AS norm_username,
+				last_seen
+			FROM user_channels
+			ORDER BY last_seen DESC
+			LIMIT 200`).Scan(&rows).Error
+	}
+	if err != nil {
+		return "", "", err
+	}
+	cands = make([]usernameCandidate, 0, len(rows))
+	for _, row := range rows {
+		cands = append(cands, usernameCandidate(row))
+	}
+	if ct, pid, ok := pickBestUsernameMatch(cands, u); ok {
+		return ct, pid, nil
+	}
+	return "", "", nil
 }
 
 func (r *repository) UpdateLastSeen(ctx context.Context, channelType, platformUserID string) error {

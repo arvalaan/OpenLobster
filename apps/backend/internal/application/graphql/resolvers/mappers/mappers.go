@@ -479,7 +479,7 @@ func intOrNil(i int) *int {
 	return &i
 }
 
-// UpdateConfigInputToMap convierte UpdateConfigInput a map para el servicio.
+// UpdateConfigInputToMap converts UpdateConfigInput to a map for the config service.
 func UpdateConfigInputToMap(input generated.UpdateConfigInput) map[string]interface{} {
 	m := make(map[string]interface{})
 	if input.AgentName != nil {

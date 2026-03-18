@@ -52,7 +52,7 @@ const CHANNEL_ICONS: Record<string, string> = {
   http: "http",
 };
 
-/** Backend puede enviar "online" o "active" para canales conectados. */
+/** Backend may send "online" or "active" for connected channels. */
 function isChannelOnline(status: string): boolean {
   return status === "online" || status === "active";
 }

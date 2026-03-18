@@ -1,20 +1,20 @@
 name: 'Docker Build & Push'
-description: 'Construye y sube la imagen docker usando los metadatos.'
+description: 'Build and push the Docker image using metadata.'
 inputs:
   app:
     required: true
-    description: 'Nombre de la app'
+    description: 'Application name'
   platform:
     required: true
-    description: 'Plataforma'
+    description: 'Target platform'
   for-push:
     required: false
     default: 'false'
-    description: '¿Es para push?'
+    description: 'Whether to push the image'
   base-dir:
     required: false
     default: 'apps'
-    description: 'Directorio base donde se encuentran las apps'
+    description: 'Base directory containing apps'
 runs:
   using: 'composite'
   steps:

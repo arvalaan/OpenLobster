@@ -31,6 +31,3 @@ Other approaches you evaluated and why they were not chosen.
 
 Links to related design docs, mockups, or prior discussions.
 
----
-
-ES (breve): Describe la mejora, objetivo y criterios de aceptación.

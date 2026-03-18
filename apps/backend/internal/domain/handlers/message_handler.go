@@ -507,7 +507,7 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 	if input.IsGroup && senderLabel != "" {
 		msgContent = "[" + senderLabel + "]: " + input.Content
 	}
-	// Guardamos solo el contenido original; msgContent (con prefijo) se usa para el LLM.
+	// Persist original content only; msgContent (with label prefix) is for the LLM.
 	userMsg := &models.Message{
 		ID:             uuid.New(),
 		ChannelID:      input.ChannelID,

@@ -2,6 +2,7 @@
   "name": "openlobster",
   "private": true,
   "scripts": {
+    "hooks:install": "git config --unset core.hooksPath 2>/dev/null || true; mkdir -p .git/hooks && cp .github/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo 'Git hook installed at .git/hooks/pre-commit'",
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
