@@ -39,7 +39,6 @@ function getDefaultFormValues(): Record<string, any> {
     ollamaApiKey: "",
     anthropicApiKey: "",
     dockerModelRunnerEndpoint: "http://localhost:12434/engines/v1",
-    dockerModelRunnerModel: "ai/smollm2",
     capabilities: {
       browser: false,
       terminal: false,
@@ -185,7 +184,6 @@ const SettingsView: Component = () => {
           ollamaApiKey: config.agent?.ollamaApiKey || "",
           anthropicApiKey: config.agent?.anthropicApiKey || "",
           dockerModelRunnerEndpoint: config.agent?.dockerModelRunnerEndpoint || "http://localhost:12434/engines/v1",
-          dockerModelRunnerModel: config.agent?.dockerModelRunnerModel || "ai/smollm2",
           capabilities: config.capabilities || {
             browser: false,
             terminal: false,
@@ -323,7 +321,6 @@ const SettingsView: Component = () => {
               ollamaApiKey: v.ollamaApiKey,
               anthropicApiKey: v.anthropicApiKey,
               dockerModelRunnerEndpoint: v.dockerModelRunnerEndpoint,
-              dockerModelRunnerModel: v.dockerModelRunnerModel,
               capabilities: v.capabilities ?? {},
               databaseDriver: v.databaseDriver,
               databaseDSN: v.databaseDSN,
