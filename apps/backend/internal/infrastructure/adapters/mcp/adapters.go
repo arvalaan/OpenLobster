@@ -162,17 +162,6 @@ func (m *MemoryAdapter) SearchMemory(ctx context.Context, userID, query string) 
 		}
 	}
 
-	if sb.Len() == 0 && len(graph.Nodes) > 0 {
-		for _, node := range graph.Nodes {
-			if node.Type == "fact" {
-				fmt.Fprintf(&sb, "[node_id:%s] %s\n", node.ID, node.Value)
-				count++
-				if count >= 10 {
-					break
-				}
-			}
-		}
-	}
 	return sb.String(), nil
 }
 

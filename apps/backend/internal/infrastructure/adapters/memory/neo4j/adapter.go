@@ -82,7 +82,7 @@ func (a *Adapter) AddKnowledge(ctx context.Context, userID string, content strin
 		upsertResult, err := session.Run(ctx,
 			"MATCH (f:Fact {id: $factID}) SET f.content = $content "+
 				"WITH f MERGE (u:User {id: $userID}) "+
-				"OPTIONAL MATCH (u)-[oldRel]->(f) DELETE oldRel "+
+				"WITH u, f OPTIONAL MATCH (u)-[oldRel]->(f) DELETE oldRel "+
 				"WITH u, f CREATE (u)-[r:"+rel+"]->(f)",
 			map[string]interface{}{"factID": existingFactID, "content": content, "userID": userID},
 		)

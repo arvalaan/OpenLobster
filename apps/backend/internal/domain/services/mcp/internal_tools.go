@@ -756,7 +756,6 @@ func (t *AddMemoryTool) Execute(ctx context.Context, params map[string]interface
 	if err != nil {
 		return nil, err
 	}
-
 	return json.RawMessage(`{"status": "added"}`), nil
 }
 
@@ -931,7 +930,6 @@ func (t *SearchMemoryTool) Execute(ctx context.Context, params map[string]interf
 	if result == "" {
 		result = "No memories found for this query."
 	}
-
 	return json.RawMessage(fmt.Sprintf("%q", result)), nil
 }
 
@@ -1615,7 +1613,7 @@ func (t *GetConversationMessagesTool) Definition() ToolDefinition {
 			"type": "object",
 			"properties": {
 				"conversation_id": {"type": "string", "description": "The conversation ID to read"},
-				"limit": {"type": "integer", "description": "Maximum number of messages to return (default 100, max 500)"}
+				"limit": {"type": "integer", "description": "Maximum number of messages to return (default 50, max 50)"}
 			},
 			"required": ["conversation_id"]
 		}`),
@@ -1630,11 +1628,11 @@ func (t *GetConversationMessagesTool) Execute(ctx context.Context, params map[st
 	if conversationID == "" {
 		return nil, fmt.Errorf("conversation_id is required")
 	}
-	limit := 100
+	limit := 50
 	if v, ok := params["limit"].(float64); ok && v > 0 {
 		limit = int(v)
-		if limit > 500 {
-			limit = 500
+		if limit > 50 {
+			limit = 50
 		}
 	}
 	messages, err := t.Tools.Conversations.GetConversationMessages(ctx, conversationID, limit)
