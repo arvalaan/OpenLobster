@@ -193,25 +193,16 @@ func (s *Scheduler) reload(ctx context.Context) {
 		log.Printf("scheduler: pending task id=%s schedule=%q addedAt=%s enabled=%v status=%s", t.ID, t.Schedule, t.AddedAt.Format(time.RFC3339), t.Enabled, t.Status)
 	}
 
-	inHeap := make(map[string]struct{}, len(s.heap))
-	for _, e := range s.heap {
-		inHeap[e.task.ID] = struct{}{}
-	}
-
-	added := 0
+	newHeap := make(taskHeap, 0, len(tasks))
 	for _, task := range tasks {
-		if _, ok := inHeap[task.ID]; ok {
-			continue
-		}
 		if _, ok := s.inFlight.Load(task.ID); ok {
 			continue
 		}
-		heap.Push(&s.heap, schedulerEntry{at: computeNextAt(task), task: task})
-		added++
+		newHeap = append(newHeap, schedulerEntry{at: computeNextAt(task), task: task})
 	}
-	if added > 0 {
-		log.Printf("scheduler: loaded %d task(s) from DB (heap size=%d)", added, len(s.heap))
-	}
+	heap.Init(&newHeap)
+	s.heap = newHeap
+	log.Printf("scheduler: heap refreshed from DB (heap size=%d)", len(s.heap))
 }
 
 func (s *Scheduler) nextSleep() time.Duration {

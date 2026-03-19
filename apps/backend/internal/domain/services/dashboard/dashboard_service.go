@@ -134,8 +134,8 @@ func NewCommandService(
 	}
 }
 
-// SetTaskNotifier registers a callback invoked after a task is successfully added.
-// Use this to wake the scheduler immediately so the new task fires on time.
+// SetTaskNotifier registers a callback invoked after task mutations.
+// Use this to wake the scheduler immediately after add/update/delete/toggle/done.
 func (s *CommandService) SetTaskNotifier(notify func()) {
 	s.taskNotifier = notify
 }
@@ -160,7 +160,13 @@ func (s *CommandService) CompleteTask(ctx context.Context, taskID string) error 
 	if s.taskRepo == nil {
 		return nil
 	}
-	return s.taskRepo.MarkDone(ctx, taskID)
+	if err := s.taskRepo.MarkDone(ctx, taskID); err != nil {
+		return err
+	}
+	if s.taskNotifier != nil {
+		s.taskNotifier()
+	}
+	return nil
 }
 
 // DeleteTask removes a task.
@@ -168,7 +174,13 @@ func (s *CommandService) DeleteTask(ctx context.Context, taskID string) error {
 	if s.taskRepo == nil {
 		return nil
 	}
-	return s.taskRepo.Delete(ctx, taskID)
+	if err := s.taskRepo.Delete(ctx, taskID); err != nil {
+		return err
+	}
+	if s.taskNotifier != nil {
+		s.taskNotifier()
+	}
+	return nil
 }
 
 // UpdateTask updates a task.
@@ -182,7 +194,13 @@ func (s *CommandService) UpdateTask(ctx context.Context, id, prompt, schedule st
 		Schedule: schedule,
 		TaskType: models.ComputeTaskType(schedule),
 	}
-	return s.taskRepo.Update(ctx, task)
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		return err
+	}
+	if s.taskNotifier != nil {
+		s.taskNotifier()
+	}
+	return nil
 }
 
 // ToggleTask enables or disables a task.
@@ -190,7 +208,13 @@ func (s *CommandService) ToggleTask(ctx context.Context, id string, enabled bool
 	if s.taskRepo == nil {
 		return nil
 	}
-	return s.taskRepo.SetEnabled(ctx, id, enabled)
+	if err := s.taskRepo.SetEnabled(ctx, id, enabled); err != nil {
+		return err
+	}
+	if s.taskNotifier != nil {
+		s.taskNotifier()
+	}
+	return nil
 }
 
 // AddMemory adds knowledge to a user's memory.
