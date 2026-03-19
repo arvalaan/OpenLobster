@@ -164,7 +164,7 @@ func (r *agenticRunner) dispatchToolCall(ctx context.Context, tc ports.ToolCall)
 
 type intermediateMessageFunc func(msg ports.ChatMessage)
 
-const maxToolRounds = 5
+const maxToolRounds = 20
 
 func (r *agenticRunner) runAgenticLoop(ctx context.Context, messages []ports.ChatMessage, tools []ports.Tool, saveIntermediate intermediateMessageFunc) (string, error) {
 	if r.aiProvider == nil {
@@ -174,7 +174,9 @@ func (r *agenticRunner) runAgenticLoop(ctx context.Context, messages []ports.Cha
 	toolsExecuted := false
 
 	for round := 0; round < maxToolRounds; round++ {
-		resp, err := r.aiProvider.Chat(ctx, req)
+		roundCtx, roundCancel := context.WithTimeout(ctx, 3*time.Minute)
+		resp, err := r.aiProvider.Chat(roundCtx, req)
+		roundCancel()
 		if err != nil {
 			return "", err
 		}
