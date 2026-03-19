@@ -45,6 +45,7 @@ const ContextKeyChannelType = contextKey("channel_type")
 
 type InternalTools struct {
 	Messaging           MessagingService
+	MessageLog          MessageLogService
 	LastChannelResolver LastChannelResolver // optional: send_message resolves user_name / Telegram username
 	Memory              MemoryService
 	Terminal            TerminalService
@@ -58,6 +59,12 @@ type InternalTools struct {
 	// ConfigPath is the absolute path to the application configuration file.
 	// Terminal tools use this to deny any command that references that file.
 	ConfigPath string
+}
+
+// MessageLogService persists outbound tool-originated messages in storage.
+// This allows send_message deliveries to appear in conversation history.
+type MessageLogService interface {
+	SaveOutbound(ctx context.Context, channelType, channelID, content string) error
 }
 
 // SkillsService provides access to the workspace skill library at runtime.
@@ -338,6 +345,18 @@ func (t *SendMessageTool) Execute(ctx context.Context, params map[string]interfa
 	err := t.Tools.Messaging.SendMessage(ctx, channelType, channel, content)
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort persistence so send_message deliveries are visible in DB history.
+	// Delivery success should not be reverted if persistence fails afterwards.
+	if t.Tools.MessageLog != nil {
+		if err := t.Tools.MessageLog.SaveOutbound(ctx, channelType, channel, content); err != nil {
+			return json.Marshal(map[string]interface{}{
+				"status":    "sent",
+				"persisted": false,
+				"warning":   fmt.Sprintf("message delivered but not persisted: %v", err),
+			})
+		}
 	}
 
 	return json.RawMessage(`{"status": "sent"}`), nil

@@ -29,8 +29,27 @@ func TestCapabilities_SetEnabled(t *testing.T) {
 func TestComputeTaskType(t *testing.T) {
 	assert.Equal(t, TaskTypeOneShot, ComputeTaskType(""))
 	assert.Equal(t, TaskTypeOneShot, ComputeTaskType("2030-01-01T00:00:00Z"))
+	assert.Equal(t, TaskTypeOneShot, ComputeTaskType("2030-01-01T08:30"))
+	assert.Equal(t, TaskTypeOneShot, ComputeTaskType("2030-01-01T08:30:00"))
 	assert.Equal(t, TaskTypeCyclic, ComputeTaskType("* * * * *"))
 	assert.Equal(t, TaskTypeCyclic, ComputeTaskType("0 9 * * 1"))
+}
+
+func TestParseTaskOneShotTime(t *testing.T) {
+	tRFC, okRFC := ParseTaskOneShotTime("2030-01-01T00:00:00Z")
+	assert.True(t, okRFC)
+	assert.False(t, tRFC.IsZero())
+
+	tLocal, okLocal := ParseTaskOneShotTime("2030-01-01T08:30")
+	assert.True(t, okLocal)
+	assert.Equal(t, 2030, tLocal.Year())
+	assert.Equal(t, time.January, tLocal.Month())
+	assert.Equal(t, 1, tLocal.Day())
+	assert.Equal(t, 8, tLocal.Hour())
+	assert.Equal(t, 30, tLocal.Minute())
+
+	_, okBad := ParseTaskOneShotTime("0 8 * * *")
+	assert.False(t, okBad)
 }
 
 func TestNewTask(t *testing.T) {

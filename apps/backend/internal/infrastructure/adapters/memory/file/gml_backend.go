@@ -244,10 +244,9 @@ func (b *GMLBackend) SearchSimilar(_ context.Context, query string, limit int) (
 	defer b.mu.RUnlock()
 
 	var results []ports.Knowledge
-	queryLower := strings.ToLower(query)
 
 	for id, node := range b.graph.Nodes {
-		if node.Type == "fact" && strings.Contains(strings.ToLower(node.Value), queryLower) {
+		if node.Type == "fact" && strings.Contains(node.Value, query) {
 			results = append(results, ports.Knowledge{
 				ID:      strconv.Itoa(id),
 				Content: node.Value,
@@ -260,6 +259,16 @@ func (b *GMLBackend) SearchSimilar(_ context.Context, query string, limit int) (
 	return results, nil
 }
 
+func responseNodeID(n *Node) string {
+	if n != nil && n.Type == "user" {
+		return "user:" + n.Value
+	}
+	if n == nil {
+		return ""
+	}
+	return strconv.Itoa(n.ID)
+}
+
 func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -269,9 +278,12 @@ func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph
 
 	// Empty userID or "*" returns the full graph (for the dashboard that shows all memories).
 	if userID == "" || userID == "*" {
+		idMap := make(map[int]string, len(b.graph.Nodes))
 		for _, n := range b.graph.Nodes {
+			rid := responseNodeID(n)
+			idMap[n.ID] = rid
 			nodes = append(nodes, models.Node{
-				ID:         strconv.Itoa(n.ID),
+				ID:         rid,
 				Label:      n.Label,
 				Type:       n.Type,
 				Value:      n.Value,
@@ -280,8 +292,8 @@ func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph
 		}
 		for _, edge := range b.graph.Edges {
 			edges = append(edges, models.Edge{
-				Source: strconv.Itoa(edge.Source),
-				Target: strconv.Itoa(edge.Target),
+				Source: idMap[edge.Source],
+				Target: idMap[edge.Target],
 				Label:  edge.Label,
 			})
 		}
@@ -308,7 +320,17 @@ func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph
 
 	userNode := b.findUserNodeInGraph(b.graph, userID)
 	if userNode == nil {
-		return ports.Graph{}, nil
+		// Keep parity with Neo4j: return a synthetic user node even when the
+		// user has no relations yet.
+		return ports.Graph{
+			Nodes: []ports.GraphNode{{
+				ID:    "user:" + userID,
+				Label: "User",
+				Type:  "user",
+				Value: userID,
+			}},
+			Edges: []ports.GraphEdge{},
+		}, nil
 	}
 
 	nodesMap := make(map[int]bool)
@@ -316,9 +338,19 @@ func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph
 
 	for _, edge := range b.graph.Edges {
 		if edge.Source == userNode.ID || edge.Target == userNode.ID {
+			srcNode := b.graph.Nodes[edge.Source]
+			tgtNode := b.graph.Nodes[edge.Target]
+			srcID := strconv.Itoa(edge.Source)
+			tgtID := strconv.Itoa(edge.Target)
+			if srcNode != nil {
+				srcID = responseNodeID(srcNode)
+			}
+			if tgtNode != nil {
+				tgtID = responseNodeID(tgtNode)
+			}
 			edges = append(edges, models.Edge{
-				Source: strconv.Itoa(edge.Source),
-				Target: strconv.Itoa(edge.Target),
+				Source: srcID,
+				Target: tgtID,
 				Label:  edge.Label,
 			})
 			nodesMap[edge.Source] = true
@@ -329,7 +361,7 @@ func (b *GMLBackend) GetUserGraph(_ context.Context, userID string) (ports.Graph
 	for id := range nodesMap {
 		if n, ok := b.graph.Nodes[id]; ok {
 			nodes = append(nodes, models.Node{
-				ID:         strconv.Itoa(n.ID),
+				ID:         responseNodeID(n),
 				Label:      n.Label,
 				Type:       n.Type,
 				Value:      n.Value,
@@ -371,11 +403,17 @@ func (b *GMLBackend) AddRelation(_ context.Context, from, to string, relType str
 	fromNode := b.findOrCreateUserInGraph(graphCopy, from)
 	toNode := b.findOrCreateUserInGraph(graphCopy, to)
 
-	graphCopy.Edges = append(graphCopy.Edges, &Edge{
-		Source: fromNode.ID,
-		Target: toNode.ID,
-		Label:  relType,
-	})
+	// Keep parity with Neo4j MERGE semantics: avoid duplicate user-user edges.
+	for _, e := range graphCopy.Edges {
+		if e.Source == fromNode.ID && e.Target == toNode.ID && e.Label == relType {
+			b.graph = graphCopy
+			b.dirty = true
+			b.mu.Unlock()
+			b.schedulePersist(graphCopy.Copy())
+			return nil
+		}
+	}
+	graphCopy.Edges = append(graphCopy.Edges, &Edge{Source: fromNode.ID, Target: toNode.ID, Label: relType})
 
 	b.graph = graphCopy
 	b.dirty = true
@@ -536,6 +574,23 @@ func (b *GMLBackend) QueryGraph(ctx context.Context, cypher string) (ports.Graph
 }
 
 func (b *GMLBackend) UpdateNode(_ context.Context, id, label, typ, value string, properties map[string]string) error {
+	if strings.HasPrefix(id, "user:") {
+		userID := strings.TrimPrefix(id, "user:")
+		b.mu.Lock()
+		graphCopy := b.graph.Copy()
+		node := b.findOrCreateUserInGraph(graphCopy, userID)
+		if label != "" {
+			node.Label = label
+		} else if value != "" {
+			node.Label = value
+		}
+		b.graph = graphCopy
+		b.dirty = true
+		b.mu.Unlock()
+		b.schedulePersist(graphCopy.Copy())
+		return nil
+	}
+
 	nodeID, err := strconv.Atoi(id)
 	if err != nil {
 		return fmt.Errorf("invalid node id: %s", id)
@@ -576,6 +631,31 @@ func (b *GMLBackend) UpdateNode(_ context.Context, id, label, typ, value string,
 }
 
 func (b *GMLBackend) DeleteNode(_ context.Context, id string) error {
+	if strings.HasPrefix(id, "user:") {
+		userID := strings.TrimPrefix(id, "user:")
+		b.mu.Lock()
+		graphCopy := b.graph.Copy()
+		node := b.findUserNodeInGraph(graphCopy, userID)
+		if node == nil {
+			b.mu.Unlock()
+			return fmt.Errorf("node not found: %s", id)
+		}
+		nodeID := node.ID
+		delete(graphCopy.Nodes, nodeID)
+		var newEdges []*Edge
+		for _, e := range graphCopy.Edges {
+			if e.Source != nodeID && e.Target != nodeID {
+				newEdges = append(newEdges, e)
+			}
+		}
+		graphCopy.Edges = newEdges
+		b.graph = graphCopy
+		b.dirty = true
+		b.mu.Unlock()
+		b.schedulePersist(graphCopy.Copy())
+		return nil
+	}
+
 	nodeID, err := strconv.Atoi(id)
 	if err != nil {
 		return fmt.Errorf("invalid node id: %s", id)

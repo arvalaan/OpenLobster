@@ -261,7 +261,7 @@ func computeNextAtLocal(task models.Task) time.Time {
 	case task.Schedule == "":
 		return task.AddedAt
 	case isDatetimeSchedule(task.Schedule):
-		t, _ := time.Parse(time.RFC3339, task.Schedule)
+		t, _ := models.ParseTaskOneShotTime(task.Schedule)
 		return t
 	default:
 		return schedulerNextCronRunLocal(task.Schedule, time.Now())
@@ -269,8 +269,8 @@ func computeNextAtLocal(task models.Task) time.Time {
 }
 
 func isDatetimeSchedule(s string) bool {
-	_, err := time.Parse(time.RFC3339, s)
-	return err == nil
+	_, ok := models.ParseTaskOneShotTime(s)
+	return ok
 }
 
 func schedulerNextCronRunLocal(schedule string, after time.Time) time.Time {
