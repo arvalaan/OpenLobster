@@ -282,6 +282,9 @@ func (m *mockTaskRepo) Delete(ctx context.Context, id string) error {
 func (m *mockTaskRepo) Update(_ context.Context, _ *models.Task) error       { return nil }
 func (m *mockTaskRepo) ListAll(_ context.Context) ([]models.Task, error)     { return m.tasks, nil }
 func (m *mockTaskRepo) SetEnabled(_ context.Context, _ string, _ bool) error { return nil }
+func (m *mockTaskRepo) SetStatus(_ context.Context, _ string, _ string) error {
+	return nil
+}
 
 type errorTaskRepo struct{ err error }
 
@@ -292,6 +295,9 @@ func (e *errorTaskRepo) Delete(_ context.Context, _ string) error             { 
 func (e *errorTaskRepo) Update(_ context.Context, _ *models.Task) error       { return nil }
 func (e *errorTaskRepo) ListAll(_ context.Context) ([]models.Task, error)     { return nil, nil }
 func (e *errorTaskRepo) SetEnabled(_ context.Context, _ string, _ bool) error { return nil }
+func (e *errorTaskRepo) SetStatus(_ context.Context, _ string, _ string) error {
+	return nil
+}
 
 func TestNewScheduler_ZeroInterval(t *testing.T) {
 	s := NewScheduler(0, false, nil, nil)

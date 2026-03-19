@@ -163,7 +163,7 @@ func (d *Deps) Metrics(ctx context.Context) *dto.MetricsSnapshot {
 	if d.QuerySvc != nil {
 		if tasks, err := d.QuerySvc.GetTasks(ctx); err == nil {
 			for _, t := range tasks {
-				if t.Status == "running" {
+				if t.Status == "running" || t.Status == "started" {
 					tasksRunning++
 				}
 			}

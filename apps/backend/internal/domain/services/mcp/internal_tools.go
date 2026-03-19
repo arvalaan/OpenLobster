@@ -1206,7 +1206,9 @@ func (t *TaskAddTool) Definition() ToolDefinition {
 			"type": "object",
 			"properties": {
 				"prompt": {"type": "string", "description": "Task prompt"},
-				"schedule": {"type": "string", "description": "One-shot execution time in ISO 8601/RFC3339 format (e.g., '2026-04-01T09:00:00Z' or '2026-04-01T09:00'). Empty means execute immediately. If you need a repeating cron, use schedule_cron instead."}
+				"schedule": {"type": "string", "description": "One-shot execution time in ISO 8601/RFC3339 format (e.g., '2026-04-01T09:00:00Z' or '2026-04-01T09:00'). Empty means execute immediately. If you need a repeating cron, use schedule_cron instead."},
+				"notify_username": {"type": "string", "description": "Recipient handle stored in user_channels.username to notify when the task runs (used with send_message.username)."},
+				"notify_channel_type": {"type": "string", "description": "Optional platform for notify_username (e.g. telegram, discord, whatsapp, twilio). This is used as send_message.username_platform."}
 			},
 			"required": ["prompt"]
 		}`),
@@ -1219,6 +1221,22 @@ func (t *TaskAddTool) Execute(ctx context.Context, params map[string]interface{}
 
 	if prompt == "" {
 		return nil, fmt.Errorf("prompt is required")
+	}
+
+	recipientInstruction := ""
+	if t.Tools.LastChannelResolver != nil {
+		if uid, ok := ctx.Value(ContextKeyUserID).(string); ok && uid != "" {
+			ct, cid, err := t.Tools.LastChannelResolver.GetLastChannelForUser(ctx, uid)
+			if err == nil && ct != "" && cid != "" {
+				recipientInstruction = fmt.Sprintf("When you send the final result, use the tool `send_message` with channel=%q and channel_type=%q (and no other recipient fields).", cid, ct)
+			}
+		}
+	}
+
+	if recipientInstruction != "" {
+		prompt = prompt + "\n\n" +
+			recipientInstruction +
+			"\nNever infer the recipient from who is asking; the recipient is defined above."
 	}
 
 	id, err := t.Tools.Tasks.Add(ctx, prompt, schedule)

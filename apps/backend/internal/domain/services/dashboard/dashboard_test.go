@@ -69,6 +69,19 @@ func (r *testTaskRepo) SetEnabled(ctx context.Context, id string, enabled bool) 
 	return nil
 }
 
+func (r *testTaskRepo) SetStatus(ctx context.Context, id string, status string) error {
+	if r.err != nil {
+		return r.err
+	}
+	for i := range r.tasks {
+		if r.tasks[i].ID == id {
+			r.tasks[i].Status = status
+			break
+		}
+	}
+	return nil
+}
+
 type testGraphCommandPort struct {
 	err error
 }
