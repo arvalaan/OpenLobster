@@ -4,6 +4,7 @@ package task
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	domainmodels "github.com/neirth/openlobster/internal/domain/models"
@@ -50,6 +51,15 @@ func (r *repository) MarkDone(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 	return r.db.WithContext(ctx).Model(&domainmodels.TaskModel{}).Where("id = ?", id).
 		Updates(map[string]interface{}{"status": "done", "finished_at": &now}).Error
+}
+
+func (r *repository) SetStatus(ctx context.Context, id string, status string) error {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&domainmodels.TaskModel{}).Where("id = ?", id).
+		Update("status", status).Error
 }
 
 func (r *repository) Update(ctx context.Context, task *domainmodels.Task) error {

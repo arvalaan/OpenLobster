@@ -151,9 +151,23 @@ func (s *Scheduler) run(ctx context.Context, entry schedulerEntry) {
 	log.Printf("scheduler: executing task %s [%s] schedule=%q",
 		task.ID, task.TaskType, task.Schedule)
 
+	// Reflect that the task is currently executing so the frontend can show it.
+	// For cyclic tasks we later reset back to "pending" after execution completes.
+	if s.taskRepo != nil {
+		if err := s.taskRepo.SetStatus(ctx, task.ID, "started"); err != nil {
+			log.Printf("scheduler: failed to mark task %s as running: %v", task.ID, err)
+		}
+	}
+
 	err := s.dispatcher.Dispatch(ctx, task.Prompt)
 	if err != nil {
 		log.Printf("scheduler: task %s execution error: %v", task.ID, err)
+		// If a task failed, return it to "pending" so it can be retried on reload.
+		if s.taskRepo != nil {
+			if stErr := s.taskRepo.SetStatus(ctx, task.ID, "error"); stErr != nil {
+				log.Printf("scheduler: failed to set task %s to error: %v", task.ID, stErr)
+			}
+		}
 		if !isOneShotSchedule(task.Schedule) {
 			s.requeueCyclic(task)
 		}
@@ -168,6 +182,12 @@ func (s *Scheduler) run(ctx context.Context, entry schedulerEntry) {
 		return
 	}
 
+	// Cyclic task completed; reset it back to pending between runs.
+	if s.taskRepo != nil {
+		if err := s.taskRepo.SetStatus(ctx, task.ID, "pending"); err != nil {
+			log.Printf("scheduler: failed to reset cyclic task %s to pending: %v", task.ID, err)
+		}
+	}
 	s.requeueCyclic(task)
 }
 

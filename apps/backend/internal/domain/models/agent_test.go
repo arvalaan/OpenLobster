@@ -40,6 +40,11 @@ func TestParseTaskOneShotTime(t *testing.T) {
 	assert.True(t, okRFC)
 	assert.False(t, tRFC.IsZero())
 
+	tNano, okNano := ParseTaskOneShotTime("2030-01-01T00:00:00.000Z")
+	assert.True(t, okNano)
+	assert.Equal(t, 2030, tNano.Year())
+	assert.Equal(t, time.January, tNano.Month())
+
 	tLocal, okLocal := ParseTaskOneShotTime("2030-01-01T08:30")
 	assert.True(t, okLocal)
 	assert.Equal(t, 2030, tLocal.Year())

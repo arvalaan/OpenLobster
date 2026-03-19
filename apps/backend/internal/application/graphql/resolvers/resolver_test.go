@@ -1336,6 +1336,10 @@ func (m *mockTaskRepo) SetEnabled(ctx context.Context, id string, enabled bool) 
 	return m.err
 }
 
+func (m *mockTaskRepo) SetStatus(ctx context.Context, id, status string) error {
+	return m.err
+}
+
 type mockMCPServerRepo struct {
 	servers []dto.MCPServerRecord
 	err     error

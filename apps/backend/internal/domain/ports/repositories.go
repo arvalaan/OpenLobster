@@ -78,6 +78,9 @@ type TaskRepositoryPort interface {
 	ListAll(ctx context.Context) ([]models.Task, error)
 	Add(ctx context.Context, task *models.Task) error
 	MarkDone(ctx context.Context, id string) error
+	// SetStatus updates the task status (e.g. "pending", "running", "done").
+	// Used by the scheduler to reflect tasks that are currently being executed.
+	SetStatus(ctx context.Context, id string, status string) error
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, task *models.Task) error
 	SetEnabled(ctx context.Context, id string, enabled bool) error

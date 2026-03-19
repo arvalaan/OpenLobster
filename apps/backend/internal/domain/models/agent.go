@@ -104,6 +104,10 @@ func ParseTaskOneShotTime(schedule string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	// Canonical format.
+	// JS Date.toISOString() includes milliseconds (RFC3339Nano), so try Nano first.
+	if t, err := time.Parse(time.RFC3339Nano, schedule); err == nil {
+		return t, true
+	}
 	if t, err := time.Parse(time.RFC3339, schedule); err == nil {
 		return t, true
 	}
