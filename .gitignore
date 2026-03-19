@@ -389,3 +389,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+# Build output binaries
+apps/backend/openlobster
+apps/backend/openlobsterd
