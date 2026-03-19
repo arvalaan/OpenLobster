@@ -97,11 +97,34 @@ type CronJob struct {
 const TaskTypeOneShot = "one-shot"
 const TaskTypeCyclic = "cyclic"
 
+// ParseTaskOneShotTime parses supported one-shot datetime formats.
+// It accepts RFC3339 and local datetime-local strings used by browser UIs.
+func ParseTaskOneShotTime(schedule string) (time.Time, bool) {
+	if schedule == "" {
+		return time.Time{}, false
+	}
+	// Canonical format.
+	if t, err := time.Parse(time.RFC3339, schedule); err == nil {
+		return t, true
+	}
+	// Browser datetime-local (no timezone): interpret in local time.
+	layouts := []string{
+		"2006-01-02T15:04",
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, schedule, time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
 func ComputeTaskType(schedule string) string {
 	if schedule == "" {
 		return TaskTypeOneShot
 	}
-	if _, err := time.Parse(time.RFC3339, schedule); err == nil {
+	if _, ok := ParseTaskOneShotTime(schedule); ok {
 		return TaskTypeOneShot
 	}
 	return TaskTypeCyclic

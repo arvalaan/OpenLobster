@@ -48,6 +48,61 @@ func (m *MessagingAdapter) SendMedia(ctx context.Context, media *ports.Media) er
 	return m.Port.SendMedia(ctx, media)
 }
 
+// OutboundMessageLogAdapter persists outbound send_message deliveries so they
+// are visible in conversation history.
+type OutboundMessageLogAdapter struct {
+	MessageRepo     ports.MessageRepositoryPort
+	SessionRepo     ports.SessionRepositoryPort
+	UserChannelRepo ports.UserChannelRepositoryPort
+}
+
+func (a *OutboundMessageLogAdapter) SaveOutbound(ctx context.Context, channelType, channelID, content string) error {
+	if a.MessageRepo == nil || a.SessionRepo == nil {
+		return nil
+	}
+
+	var userID string
+	if a.UserChannelRepo != nil && channelID != "" {
+		uid, err := a.UserChannelRepo.GetUserIDByPlatformUserID(ctx, channelID)
+		if err != nil {
+			return fmt.Errorf("resolve user by platform id: %w", err)
+		}
+		userID = uid
+	}
+
+	var session *models.Session
+	if userID != "" {
+		if sessions, err := a.SessionRepo.GetActiveByUser(ctx, userID); err == nil && len(sessions) > 0 {
+			session = &sessions[0]
+		}
+	}
+	if session == nil {
+		if sessions, err := a.SessionRepo.GetActiveByChannel(ctx, channelID); err == nil && len(sessions) > 0 {
+			session = &sessions[0]
+		}
+	}
+	if session == nil {
+		session = models.NewSession(userID)
+		session.ChannelID = channelID
+		session.UserID = userID
+		if err := a.SessionRepo.Create(ctx, session); err != nil {
+			return fmt.Errorf("create conversation for outbound message: %w", err)
+		}
+	}
+
+	msg := models.NewMessage(channelID, content)
+	msg.Role = "assistant"
+	msg.ConversationID = session.ID.String()
+	if msg.Metadata == nil {
+		msg.Metadata = make(map[string]interface{})
+	}
+	msg.Metadata["channel_type"] = channelType
+	if err := a.MessageRepo.Save(ctx, msg); err != nil {
+		return fmt.Errorf("save outbound message: %w", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // MemoryAdapter — bridges ports.MemoryPort to mcp.MemoryService
 // ---------------------------------------------------------------------------

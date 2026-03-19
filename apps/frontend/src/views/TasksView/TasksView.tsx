@@ -13,6 +13,25 @@ import Modal from '../../components/Modal';
 import { t } from '../../App';
 import './TasksView.css';
 
+const localDateTimeValueFromSchedule = (schedule: string): string => {
+  if (!schedule) return '';
+  const d = new Date(schedule);
+  if (isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+};
+
+const isoScheduleFromLocalDateTime = (value: string): string => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString();
+};
+
 const TasksView: Component = () => {
   const tasks = useTasks(client);
   const [showNewTaskForm, setShowNewTaskForm] = createSignal(false);
@@ -277,10 +296,10 @@ const TasksView: Component = () => {
               ) : (
                 <input
                   type="datetime-local"
-                  value={newSchedule().replace('Z', '')}
+                  value={localDateTimeValueFromSchedule(newSchedule())}
                   onInput={(e) => {
                     const v = e.currentTarget.value;
-                    setNewSchedule(v ? `${v}:00Z` : '');
+                    setNewSchedule(isoScheduleFromLocalDateTime(v));
                   }}
                 />
               )}
@@ -354,10 +373,10 @@ const TasksView: Component = () => {
               ) : (
                 <input
                   type="datetime-local"
-                  value={editSchedule().replace('Z', '')}
+                  value={localDateTimeValueFromSchedule(editSchedule())}
                   onInput={(e) => {
                     const v = e.currentTarget.value;
-                    setEditSchedule(v ? `${v}:00Z` : '');
+                    setEditSchedule(isoScheduleFromLocalDateTime(v));
                   }}
                 />
               )}

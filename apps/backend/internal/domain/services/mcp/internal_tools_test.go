@@ -25,6 +25,15 @@ func (m *MockMessagingService) SendMedia(ctx context.Context, media *ports.Media
 	return args.Error(0)
 }
 
+type MockMessageLogService struct {
+	mock.Mock
+}
+
+func (m *MockMessageLogService) SaveOutbound(ctx context.Context, channelType, channelID, content string) error {
+	args := m.Called(ctx, channelType, channelID, content)
+	return args.Error(0)
+}
+
 type MockMemoryService struct {
 	mock.Mock
 }
@@ -554,6 +563,57 @@ func TestSendMessageTool_Execute_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, string(result), "sent")
 	mockMsg.AssertExpectations(t)
+}
+
+func TestSendMessageTool_Execute_PersistsOutboundMessage(t *testing.T) {
+	mockMsg := new(MockMessagingService)
+	mockLog := new(MockMessageLogService)
+	mockMsg.On("SendMessage", mock.Anything, "telegram", "channel123", "Hello").Return(nil)
+	mockLog.On("SaveOutbound", mock.Anything, "telegram", "channel123", "Hello").Return(nil)
+
+	tool := &SendMessageTool{
+		Tools: InternalTools{
+			Messaging:  mockMsg,
+			MessageLog: mockLog,
+		},
+	}
+
+	result, err := tool.Execute(context.Background(), map[string]interface{}{
+		"channel":      "channel123",
+		"channel_type": "telegram",
+		"content":      "Hello",
+	})
+
+	assert.NoError(t, err)
+	assert.Contains(t, string(result), "sent")
+	mockMsg.AssertExpectations(t)
+	mockLog.AssertExpectations(t)
+}
+
+func TestSendMessageTool_Execute_PersistenceFailureReturnsWarning(t *testing.T) {
+	mockMsg := new(MockMessagingService)
+	mockLog := new(MockMessageLogService)
+	mockMsg.On("SendMessage", mock.Anything, "telegram", "channel123", "Hello").Return(nil)
+	mockLog.On("SaveOutbound", mock.Anything, "telegram", "channel123", "Hello").Return(assert.AnError)
+
+	tool := &SendMessageTool{
+		Tools: InternalTools{
+			Messaging:  mockMsg,
+			MessageLog: mockLog,
+		},
+	}
+
+	result, err := tool.Execute(context.Background(), map[string]interface{}{
+		"channel":      "channel123",
+		"channel_type": "telegram",
+		"content":      "Hello",
+	})
+
+	assert.NoError(t, err)
+	assert.Contains(t, string(result), "\"persisted\":false")
+	assert.Contains(t, string(result), "warning")
+	mockMsg.AssertExpectations(t)
+	mockLog.AssertExpectations(t)
 }
 
 func TestSendMessageTool_Execute_MissingParams(t *testing.T) {

@@ -545,6 +545,24 @@ func sanitizePropKey(key string) string {
 
 // DeleteNode implements NodeMutatorPort for the dashboard: deletes a Fact by id (no userID in flow).
 func (a *Adapter) DeleteNode(ctx context.Context, id string) error {
+	// User nodes are exposed in the graph with the synthetic "user:<userID>" id.
+	// Deleting one from the dashboard should remove the real User node.
+	if strings.HasPrefix(id, "user:") {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+
+		session := a.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+		defer session.Close(ctx)
+
+		userID := strings.TrimPrefix(id, "user:")
+		result, err := session.Run(ctx, "MATCH (u:User {id: $userID}) DETACH DELETE u", map[string]interface{}{"userID": userID})
+		if err != nil {
+			return err
+		}
+		result.Consume(ctx)
+		return nil
+	}
+
 	return a.DeleteMemoryNode(ctx, "", id)
 }
 

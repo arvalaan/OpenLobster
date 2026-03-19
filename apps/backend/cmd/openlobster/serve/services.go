@@ -103,6 +103,7 @@ func (a *App) initServices() {
 	// Register all internal tools
 	mcp.RegisterAllInternalTools(a.ToolRegistry, mcp.InternalTools{
 		Messaging:           &inframc.MessagingAdapter{Port: a.MsgRouter},
+		MessageLog:          &inframc.OutboundMessageLogAdapter{MessageRepo: a.MessageRepo, SessionRepo: a.SessionRepo, UserChannelRepo: a.UserChannelRepo},
 		LastChannelResolver: a.UserChannelRepo,
 		Memory:              &inframc.MemoryAdapter{Port: a.MemoryAdapter},
 		Tasks: &inframc.TaskAdapter{Repo: a.TaskRepo, Notify: func() {
