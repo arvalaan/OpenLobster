@@ -60,7 +60,7 @@ func summarizeForAgent(desc string) string {
 	return strings.TrimSpace(trunc) + "..."
 }
 
-func (r *agenticRunner) buildToolsForUser(userID string) []ports.Tool {
+func (r *agenticRunner) buildToolsForAgent(userID string) []ports.Tool {
 	if r.toolRegistry == nil {
 		return nil
 	}
@@ -706,7 +706,7 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 		}
 	}
 
-	tools := h.runner.buildToolsForUser(input.ChannelID)
+	tools := h.runner.buildToolsForAgent(input.ChannelID)
 
 	var saveFn intermediateMessageFunc
 	if !isLoopback {

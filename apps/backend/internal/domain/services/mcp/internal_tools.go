@@ -59,6 +59,9 @@ type InternalTools struct {
 	// ConfigPath is the absolute path to the application configuration file.
 	// Terminal tools use this to deny any command that references that file.
 	ConfigPath string
+	// SchedulerNotify wakes up the scheduler loop after task mutations so
+	// one-shot tasks are picked up immediately without waiting for restarts.
+	SchedulerNotify func()
 }
 
 // MessageLogService persists outbound tool-originated messages in storage.
@@ -939,12 +942,12 @@ type ScheduleCronTool struct {
 func (t *ScheduleCronTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "schedule_cron",
-		Description: "Create or modify a cron job",
+		Description: "Create or modify a cyclic cron job (repeated execution).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"name": {"type": "string", "description": "Job name"},
-				"schedule": {"type": "string", "description": "Cron expression (e.g., '0 8 * * *')"},
+				"schedule": {"type": "string", "description": "Cron expression for a cyclic job (e.g., '0 8 * * *'). Do not pass ISO datetimes here."},
 				"prompt": {"type": "string", "description": "Prompt to execute"},
 				"channel": {"type": "string", "description": "Channel ID for announcements"}
 			},
@@ -1198,12 +1201,12 @@ type TaskAddTool struct {
 func (t *TaskAddTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "task_add",
-		Description: "Add a task to the heartbeat task queue",
+		Description: "Add a one-shot task to the scheduler queue (execute once) or execute immediately.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"prompt": {"type": "string", "description": "Task prompt"},
-				"schedule": {"type": "string", "description": "Cron expression (e.g. \"0 8 * * *\"); empty means one-shot"}
+				"schedule": {"type": "string", "description": "One-shot execution time in ISO 8601/RFC3339 format (e.g., '2026-04-01T09:00:00Z' or '2026-04-01T09:00'). Empty means execute immediately. If you need a repeating cron, use schedule_cron instead."}
 			},
 			"required": ["prompt"]
 		}`),
@@ -1221,6 +1224,9 @@ func (t *TaskAddTool) Execute(ctx context.Context, params map[string]interface{}
 	id, err := t.Tools.Tasks.Add(ctx, prompt, schedule)
 	if err != nil {
 		return nil, err
+	}
+	if t.Tools.SchedulerNotify != nil {
+		t.Tools.SchedulerNotify()
 	}
 
 	return json.Marshal(map[string]interface{}{

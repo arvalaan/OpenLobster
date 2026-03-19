@@ -125,8 +125,17 @@ func (a *App) initServices() {
 		Conversations: &inframc.ConversationAdapter{ConvRepo: a.ConvRepo, MsgRepo: a.MessageRepo},
 		Skills:        a.SkillsAdapter,
 		ConfigPath:    a.CfgPath,
+		SchedulerNotify: func() {
+			if a.SchedulerNotify != nil {
+				a.SchedulerNotify()
+			}
+		},
 	})
 	log.Printf("tools: registered %d internal tools", len(a.ToolRegistry.AllTools()))
+
+	// Wire tool registry into subagents so they can perform tool_use loops.
+	a.SubAgentSvc.SetToolRegistry(a.ToolRegistry)
+	a.SubAgentSvc.SetPermissionManager(a.PermManager)
 
 	// Context injector
 	a.CtxInjector = appcontext.NewContextInjector(

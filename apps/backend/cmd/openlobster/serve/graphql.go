@@ -109,6 +109,31 @@ func (a *App) initGraphQL() {
 		}
 	})
 
+	// Keep subagent tool visibility aligned with the main agent.
+	a.SubAgentSvc.SetCapabilitiesChecker(func(cap string) bool {
+		if a.Deps.ConfigSnapshot == nil || a.Deps.ConfigSnapshot.Capabilities == nil {
+			return true
+		}
+		switch cap {
+		case "browser":
+			return a.Deps.ConfigSnapshot.Capabilities.Browser
+		case "terminal":
+			return a.Deps.ConfigSnapshot.Capabilities.Terminal
+		case "subagents":
+			return a.Deps.ConfigSnapshot.Capabilities.Subagents
+		case "memory":
+			return a.Deps.ConfigSnapshot.Capabilities.Memory
+		case "mcp":
+			return a.Deps.ConfigSnapshot.Capabilities.MCP
+		case "filesystem":
+			return a.Deps.ConfigSnapshot.Capabilities.Filesystem
+		case "sessions":
+			return a.Deps.ConfigSnapshot.Capabilities.Sessions
+		default:
+			return true
+		}
+	})
+
 	a.ConfigWriter = &dto.ConfigUpdateAdapter{
 		ConfigPath:    a.CfgPathAbs,
 		ReloadChannel: a.reloadChannel,

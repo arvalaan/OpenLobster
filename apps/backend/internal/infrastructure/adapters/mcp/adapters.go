@@ -233,7 +233,13 @@ func (a *TaskAdapter) Add(ctx context.Context, prompt, schedule string) (string,
 }
 
 func (a *TaskAdapter) Done(ctx context.Context, id string) error {
-	return a.Repo.Done(ctx, id)
+	if err := a.Repo.Done(ctx, id); err != nil {
+		return err
+	}
+	if a.Notify != nil {
+		a.Notify()
+	}
+	return nil
 }
 
 func (a *TaskAdapter) List(ctx context.Context) ([]svmcp.TaskInfo, error) {
@@ -344,7 +350,13 @@ func (a *CronAdapter) List(ctx context.Context) ([]svmcp.CronJobInfo, error) {
 }
 
 func (a *CronAdapter) Delete(ctx context.Context, jobID string) error {
-	return a.Repo.Delete(ctx, jobID)
+	if err := a.Repo.Delete(ctx, jobID); err != nil {
+		return err
+	}
+	if a.Notify != nil {
+		a.Notify()
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
