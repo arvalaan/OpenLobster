@@ -92,6 +92,11 @@ are known conflict zones. For each one the correct resolution is described.
   - `maxToolRounds` must stay at **20**.
   - `injectMemoryTurn` must be guarded with `if !isLoopback`.
   - The `stopReason == "length" && hasToolCalls` branch must remain.
+  - The `role == "tool"` branch must **NOT** persist to DB and must **NOT** call
+    `h.messageRepo.Save()`. `models.Message` has no `ToolCallID` field; saving tool
+    results without it causes Anthropic/OpenRouter to reject the conversation history
+    replay with `tool_use_id: String should match pattern '^[a-zA-Z0-9_-]+'`.
+    Only publish the event bus event so the UI shows live tool activity.
 
 ### 7. `schema/config.graphql` and `apps/backend/internal/application/graphql/generated/`
 - **Risk**: upstream may not have the Mattermost fields in `ChannelSecretsConfig`
