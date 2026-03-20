@@ -1112,6 +1112,12 @@ func (h *MessageHandler) buildMessages(ctx context.Context, conversationID, syst
 		history, err := h.messageRepo.GetSinceLastCompaction(ctx, conversationID)
 		if err == nil {
 			for _, m := range history {
+				// Skip persisted tool-result rows: models.Message has no ToolCallID
+				// so they would be sent with an empty tool_use_id, causing a 400 from
+				// Anthropic/OpenRouter ("tool_use_id must match ^[a-zA-Z0-9_-]+").
+				if m.Role == "tool" {
+					continue
+				}
 				messages = append(messages, ports.ChatMessage{Role: m.Role, Content: m.Content})
 			}
 		}
