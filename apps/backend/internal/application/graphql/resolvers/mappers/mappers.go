@@ -431,6 +431,9 @@ func AppConfigSnapshotToGenerated(cfg *dto.AppConfigSnapshot) *generated.AppConf
 		cs.SlackEnabled = BoolPtr(cfg.ChannelSecrets.SlackEnabled)
 		cs.SlackBotToken = strOrNil(cfg.ChannelSecrets.SlackBotToken)
 		cs.SlackAppToken = strOrNil(cfg.ChannelSecrets.SlackAppToken)
+		cs.MattermostEnabled = BoolPtr(cfg.ChannelSecrets.MattermostEnabled)
+		cs.MattermostServerURL = strOrNil(cfg.ChannelSecrets.MattermostServerURL)
+		cs.MattermostBotToken = strOrNil(cfg.ChannelSecrets.MattermostBotToken)
 		out.ChannelSecrets = cs
 	}
 	out.WizardCompleted = BoolPtr(cfg.WizardCompleted)
@@ -653,6 +656,15 @@ func UpdateConfigInputToMap(input generated.UpdateConfigInput) map[string]interf
 	}
 	if input.ChannelSlackAppToken != nil {
 		m["channelSlackAppToken"] = *input.ChannelSlackAppToken
+	}
+	if input.ChannelMattermostEnabled != nil {
+		m["channelMattermostEnabled"] = *input.ChannelMattermostEnabled
+	}
+	if input.ChannelMattermostServerURL != nil {
+		m["channelMattermostServerURL"] = *input.ChannelMattermostServerURL
+	}
+	if input.ChannelMattermostBotToken != nil {
+		m["channelMattermostBotToken"] = *input.ChannelMattermostBotToken
 	}
 	if input.WizardCompleted != nil {
 		m["wizardCompleted"] = *input.WizardCompleted

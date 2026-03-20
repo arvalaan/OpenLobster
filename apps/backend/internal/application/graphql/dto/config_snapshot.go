@@ -97,6 +97,14 @@ func BuildConfigSnapshot(cfg *config.Config, providerNameFn func(*config.Config)
 			SlackEnabled:     cfg.Channels.Slack.Enabled,
 			SlackBotToken:    cfg.Channels.Slack.BotToken,
 			SlackAppToken:    cfg.Channels.Slack.AppToken,
+			MattermostEnabled: cfg.Channels.Mattermost.Enabled,
+			MattermostServerURL: cfg.Channels.Mattermost.ServerURL,
+			MattermostBotToken: func() string {
+				if len(cfg.Channels.Mattermost.Profiles) > 0 {
+					return cfg.Channels.Mattermost.Profiles[0].BotToken
+				}
+				return ""
+			}(),
 		},
 		WizardCompleted: cfg.Wizard.Completed,
 	}
