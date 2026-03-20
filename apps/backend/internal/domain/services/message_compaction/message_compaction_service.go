@@ -131,6 +131,12 @@ func (c *Service) BuildMessages(ctx context.Context, conversationID string, syst
 		if m.Role == "compaction" {
 			continue
 		}
+		// Skip persisted tool-result rows: models.Message has no ToolCallID so
+		// they would be sent with an empty tool_use_id, causing a 400 from
+		// Anthropic/OpenRouter ("tool_use_id must match ^[a-zA-Z0-9_-]+").
+		if m.Role == "tool" {
+			continue
+		}
 		messages = append(messages, ports.ChatMessage{Role: m.Role, Content: m.Content})
 	}
 
