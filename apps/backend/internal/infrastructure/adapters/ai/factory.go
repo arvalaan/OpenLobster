@@ -13,13 +13,17 @@ import (
 	"github.com/neirth/openlobster/internal/infrastructure/config"
 )
 
-// MaxOutputTokens is the fixed output-token limit for AI completions (~2000 chars, fits Discord).
-const MaxOutputTokens = 500
+// defaultMaxOutputTokens is used when the config does not specify a value.
+const defaultMaxOutputTokens = 4096
 
 // BuildFromConfig creates the AIProviderPort that matches cfg.Agent.Provider
 // when explicitly set, falling back to the first provider with valid credentials.
 // Returns nil if no provider is configured.
 func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
+	maxTokens := cfg.Agent.MaxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxOutputTokens
+	}
 	switch ProviderName(cfg) {
 	case "openai":
 		model := cfg.Providers.OpenAI.Model
@@ -28,9 +32,9 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 		}
 		var a *aiopenai.Adapter
 		if baseURL := cfg.Providers.OpenAI.BaseURL; baseURL != "" {
-			a = aiopenai.NewAdapterWithEndpoint(baseURL, cfg.Providers.OpenAI.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+			a = aiopenai.NewAdapterWithEndpoint(baseURL, cfg.Providers.OpenAI.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 		} else {
-			a = aiopenai.NewAdapter(cfg.Providers.OpenAI.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+			a = aiopenai.NewAdapter(cfg.Providers.OpenAI.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 		}
 		if cfg.Providers.OpenAI.ContextWindow > 0 {
 			a.OverrideContextWindow(cfg.Providers.OpenAI.ContextWindow)
@@ -41,7 +45,7 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 		if model == "" {
 			model = "openai/gpt-4o"
 		}
-		a := aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+		a := aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 		if cfg.Providers.OpenRouter.ContextWindow > 0 {
 			a.OverrideContextWindow(cfg.Providers.OpenRouter.ContextWindow)
 		}
@@ -55,7 +59,7 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 			cfg.Providers.OpenAICompat.BaseURL,
 			cfg.Providers.OpenAICompat.APIKey,
 			model,
-			MaxOutputTokens,
+			maxTokens,
 			cfg.Agent.ReasoningLevel,
 		)
 		if cfg.Providers.OpenAICompat.ContextWindow > 0 {
@@ -67,7 +71,7 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 		if model == "" {
 			model = "llama3"
 		}
-		a := aiollama.NewAdapterWithOptions(cfg.Providers.Ollama.Endpoint, cfg.Providers.Ollama.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+		a := aiollama.NewAdapterWithOptions(cfg.Providers.Ollama.Endpoint, cfg.Providers.Ollama.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 		if cfg.Providers.Ollama.ContextWindow > 0 {
 			a.OverrideContextWindow(cfg.Providers.Ollama.ContextWindow)
 		}
@@ -77,7 +81,7 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 		if model == "" {
 			model = "claude-sonnet-4-6"
 		}
-		a := aianthropicadapter.NewAdapter(cfg.Providers.Anthropic.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+		a := aianthropicadapter.NewAdapter(cfg.Providers.Anthropic.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 		if cfg.Providers.Anthropic.ContextWindow > 0 {
 			a.OverrideContextWindow(cfg.Providers.Anthropic.ContextWindow)
 		}
@@ -87,13 +91,13 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 		if model == "" {
 			model = "kimi-k2.5"
 		}
-		return aizenadapter.NewAdapter(cfg.Providers.OpenCode.APIKey, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+		return aizenadapter.NewAdapter(cfg.Providers.OpenCode.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 	case "docker-model-runner":
 		model := cfg.Providers.DockerModelRunner.DefaultModel
 		if model == "" {
 			model = "ai/mistral-nemo"
 		}
-		a := aidockermodelrunner.NewAdapter(cfg.Providers.DockerModelRunner.Endpoint, model, MaxOutputTokens, cfg.Agent.ReasoningLevel)
+		a := aidockermodelrunner.NewAdapter(cfg.Providers.DockerModelRunner.Endpoint, model, maxTokens, cfg.Agent.ReasoningLevel)
 		if cfg.Providers.DockerModelRunner.ContextWindow > 0 {
 			a.OverrideContextWindow(cfg.Providers.DockerModelRunner.ContextWindow)
 		}
