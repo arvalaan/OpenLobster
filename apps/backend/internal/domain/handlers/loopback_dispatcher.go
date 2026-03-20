@@ -4,8 +4,11 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"time"
 )
+
+const archivistPrefix = "[ARCHIVIST]"
 
 const loopbackChannelID = "loopback"
 
@@ -35,9 +38,37 @@ the long-term memory graph. You do NOT interact with users.
 
 ## Rules
 
+## Entity Storage
+
+Prefer typed entity tools over add_memory whenever possible:
+
+| Information type        | Tool to use                           | Example relation      |
+|------------------------|---------------------------------------|-----------------------|
+| People in user's life  | upsert_entity type=Person             | SPOUSE_OF, FRIEND_OF  |
+| Pets                   | upsert_entity type=Pet                | HAS_PET               |
+| Locations              | upsert_entity type=Place              | LIVES_AT, FREQUENTS   |
+| Employers / orgs       | upsert_entity type=Organization       | WORKS_AT, MEMBER_OF   |
+| Appointments / events  | upsert_entity type=Event              | SCHEDULED_FOR         |
+| Current goals/projects | upsert_entity type=Goal               | WORKING_ON            |
+| Vehicles/devices/subs  | upsert_entity type=Asset + OWNS/LEASES| always set valid_from |
+| Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN         |
+
+After creating entity nodes, call link_entities to connect them to each other
+where a direct relationship exists (e.g. Nina LIVES_AT Almere, Millie HAS_PET Nina).
+
+Use add_memory ONLY for free-text context that genuinely has no entity home
+(e.g. "Vincent burned out in April 2024", "prefers dark mode").
+
+For OWNS / LEASES / WORKS_AT / LIVES_AT: always pass
+rel_props={"valid_from":"<now ISO>"} so the relationship is correctly
+timestamped for future temporal queries.
+
+## Rules
+
 - Only store verifiable facts explicitly stated in the conversation.
 - Do not store sensitive personal data (passwords, payment details, health records).
 - Each fact should be concise and self-contained.
+- Never create intermediate nodes just to organize relationships.
 - NEVER use NO_REPLY — simply finish calling tools and return when done.
 
 ## Current Date
@@ -58,13 +89,24 @@ func NewLoopbackDispatcher(handler *MessageHandler) *LoopbackDispatcher {
 }
 
 // Dispatch sends prompt through the full agentic pipeline via the loopback channel.
-// When the prompt originates from the memory consolidation scheduler, a dedicated
-// system prompt is injected so the model knows its consolidation role.
+// Prompts prefixed with "[ARCHIVIST]" are routed to the Archivist graph curation
+// agent; all others use the standard memory consolidation system prompt.
 func (d *LoopbackDispatcher) Dispatch(ctx context.Context, prompt string) error {
+	sysPrompt := buildMemoryConsolidationSystemPrompt()
+	content := prompt
+	if strings.HasPrefix(prompt, archivistPrefix) {
+		sysPrompt = buildArchivistSystemPrompt()
+		content = strings.TrimPrefix(prompt, archivistPrefix+" ")
+		if content == prompt {
+			// handle "[ARCHIVIST]" with no trailing space
+			content = strings.TrimPrefix(prompt, archivistPrefix)
+		}
+		content = strings.TrimSpace(content)
+	}
 	return d.handler.Handle(ctx, HandleMessageInput{
 		ChannelID:    loopbackChannelID,
-		Content:      prompt,
+		Content:      content,
 		ChannelType:  loopbackChannelID,
-		SystemPrompt: buildMemoryConsolidationSystemPrompt(),
+		SystemPrompt: sysPrompt,
 	})
 }

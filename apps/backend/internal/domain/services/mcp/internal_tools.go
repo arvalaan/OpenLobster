@@ -1812,4 +1812,5 @@ func RegisterAllInternalTools(reg *ToolRegistry, tools InternalTools) {
 		reg.RegisterInternal("load_skill", &LoadSkillTool{Tools: tools})
 		reg.RegisterInternal("read_skill_file", &ReadSkillFileTool{Tools: tools})
 	}
+	RegisterEntityTools(reg, tools)
 }

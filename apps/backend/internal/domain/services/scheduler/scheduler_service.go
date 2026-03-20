@@ -9,8 +9,7 @@
 //  1. The soonest entry is due   → fireDue: pop all due entries, dispatch goroutines
 //  2. An external change arrives → Notify: reload DB, reset timer
 //  3. A cyclic task completes    → rescheduleCh: re-insert at next cron time
-//  4. The memory interval fires  → consolidateMemory goroutine
-//  5. Context is cancelled       → clean shutdown
+//  4. Context is cancelled       → clean shutdown
 package scheduler
 
 import (
@@ -54,10 +53,8 @@ func (h *taskHeap) Pop() interface{} {
 
 // Scheduler is a libuv-inspired, single-threaded event loop.
 type Scheduler struct {
-	dispatcher  ports.TaskDispatcherPort
-	taskRepo    ports.TaskRepositoryPort
-	memInterval time.Duration
-	memEnabled  bool
+	dispatcher ports.TaskDispatcherPort
+	taskRepo   ports.TaskRepositoryPort
 
 	heap         taskHeap
 	notifyCh     chan struct{}
@@ -67,19 +64,12 @@ type Scheduler struct {
 
 // NewScheduler constructs a Scheduler ready to be started with Run.
 func NewScheduler(
-	memInterval time.Duration,
-	memEnabled bool,
 	dispatcher ports.TaskDispatcherPort,
 	taskRepo ports.TaskRepositoryPort,
 ) *Scheduler {
-	if memInterval <= 0 {
-		memInterval = 4 * time.Hour
-	}
 	return &Scheduler{
 		dispatcher:   dispatcher,
 		taskRepo:     taskRepo,
-		memInterval:  memInterval,
-		memEnabled:   memEnabled,
 		heap:         make(taskHeap, 0, 16),
 		notifyCh:     make(chan struct{}, 1),
 		rescheduleCh: make(chan schedulerEntry, 64),
@@ -101,15 +91,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 	timer := time.NewTimer(s.nextSleep())
 	defer timer.Stop()
 
-	var memTickerC <-chan time.Time
-	if s.memEnabled && s.memInterval > 0 {
-		mt := time.NewTicker(s.memInterval)
-		defer mt.Stop()
-		memTickerC = mt.C
-	}
-
-	log.Printf("scheduler: event loop started (pending=%d memConsolidation=%v)",
-		len(s.heap), s.memEnabled)
+	log.Printf("scheduler: event loop started (pending=%d)", len(s.heap))
 
 	for {
 		select {
@@ -128,9 +110,6 @@ func (s *Scheduler) Run(ctx context.Context) {
 		case <-s.notifyCh:
 			s.reload(ctx)
 			resetTimer(timer, s.nextSleep())
-
-		case <-memTickerC:
-			go s.consolidateMemory(ctx)
 		}
 	}
 }
@@ -234,13 +213,6 @@ func (s *Scheduler) nextSleep() time.Duration {
 		return 0
 	}
 	return d
-}
-
-func (s *Scheduler) consolidateMemory(ctx context.Context) {
-	log.Println("scheduler: running memory consolidation")
-	if err := s.dispatcher.Dispatch(ctx, MemoryConsolidationPrompt); err != nil {
-		log.Printf("scheduler: memory consolidation error: %v", err)
-	}
 }
 
 func computeNextAt(task models.Task) time.Time {

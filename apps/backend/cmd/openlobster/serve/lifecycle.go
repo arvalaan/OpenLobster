@@ -31,13 +31,9 @@ func (a *App) startAndWait() {
 	// Scheduler
 	if a.Cfg.Scheduler.Enabled {
 		dispatcher := domainhandlers.NewLoopbackDispatcher(a.MsgHandler)
-		sched := domainservices.NewScheduler(
-			a.Cfg.Scheduler.MemoryInterval,
-			a.Cfg.Scheduler.MemoryEnabled,
-			dispatcher,
-			a.TaskRepo,
-		)
+		sched := domainservices.NewScheduler(dispatcher, a.TaskRepo)
 		a.SchedulerNotify = sched.Notify
+		a.seedSystemTasks(ctx)
 		go sched.Run(ctx)
 	}
 

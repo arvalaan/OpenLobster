@@ -200,7 +200,7 @@ func TestNextSleep_PastEntry(t *testing.T) {
 }
 
 func TestScheduler_Notify_NonBlocking(t *testing.T) {
-	s := NewScheduler(time.Hour, false, nil, nil)
+	s := NewScheduler(nil, nil)
 	s.Notify()
 	done := make(chan struct{})
 	go func() {
@@ -299,13 +299,6 @@ func (e *errorTaskRepo) SetStatus(_ context.Context, _ string, _ string) error {
 	return nil
 }
 
-func TestNewScheduler_ZeroInterval(t *testing.T) {
-	s := NewScheduler(0, false, nil, nil)
-	if s.memInterval != 4*time.Hour {
-		t.Errorf("zero memInterval should default to 4h, got %v", s.memInterval)
-	}
-}
-
 func TestScheduler_Reload_NilRepo(t *testing.T) {
 	s := newTestScheduler(nil)
 	s.reload(context.Background())
@@ -324,7 +317,7 @@ func TestScheduler_Reload_GetPendingError(t *testing.T) {
 
 func TestScheduler_Run_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	s := NewScheduler(time.Hour, false, nil, nil)
+	s := NewScheduler(nil, nil)
 	done := make(chan struct{})
 	go func() {
 		s.Run(ctx)
@@ -346,7 +339,7 @@ func TestScheduler_FireDue_DispatchesTask(t *testing.T) {
 		return nil
 	}}
 	repo := &mockTaskRepo{tasks: []models.Task{task}}
-	s := NewScheduler(time.Hour, false, disp, repo)
+	s := NewScheduler(disp, repo)
 	heap.Push(&s.heap, schedulerEntry{at: time.Now().Add(-time.Second), task: task})
 	heap.Init(&s.heap)
 
@@ -380,7 +373,7 @@ func TestScheduler_Run_DispatchError_RequeuesCyclic(t *testing.T) {
 		return fmt.Errorf("dispatch failed")
 	}}
 	repo := &mockTaskRepo{tasks: []models.Task{task}}
-	s := NewScheduler(time.Hour, false, disp, repo)
+	s := NewScheduler(disp, repo)
 	heap.Push(&s.heap, schedulerEntry{at: time.Now().Add(-time.Second), task: task})
 	heap.Init(&s.heap)
 
@@ -408,7 +401,7 @@ func TestScheduler_Run_OneShot_DeletesTask(t *testing.T) {
 		deleted <- id
 		return nil
 	}
-	s := NewScheduler(time.Hour, false, disp, repo)
+	s := NewScheduler(disp, repo)
 	heap.Push(&s.heap, schedulerEntry{at: time.Now().Add(-time.Second), task: task})
 	heap.Init(&s.heap)
 
@@ -424,12 +417,3 @@ func TestScheduler_Run_OneShot_DeletesTask(t *testing.T) {
 	}
 }
 
-func TestScheduler_Run_WithMemoryConsolidation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	disp := &mockDispatcher{}
-	s := NewScheduler(10*time.Millisecond, true, disp, nil)
-	go s.Run(ctx)
-	time.Sleep(30 * time.Millisecond)
-}
