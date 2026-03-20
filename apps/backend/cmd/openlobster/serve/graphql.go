@@ -2,6 +2,7 @@ package serve
 
 import (
 	"log"
+	"strings"
 
 	appmcp "github.com/neirth/openlobster/internal/application/mcp"
 	"github.com/neirth/openlobster/internal/application/graphql"
@@ -200,6 +201,52 @@ func buildInitialChannels(cfg *config.Config) []dto.ChannelStatus {
 				HasVoiceMessage: true, HasTextStream: true, HasMediaSupport: true,
 			},
 		})
+	}
+	if cfg.Channels.Slack.Enabled && isReal(cfg.Channels.Slack.BotToken) && isReal(cfg.Channels.Slack.AppToken) {
+		ch = append(ch, dto.ChannelStatus{
+			ID: "slack", Name: "Slack", Type: "slack", Status: "online",
+			Enabled: true,
+			Capabilities: dto.ChannelCapabilities{
+				HasVoiceMessage: true, HasTextStream: true, HasMediaSupport: true,
+			},
+		})
+	}
+	if cfg.Channels.WhatsApp.Enabled && isReal(cfg.Channels.WhatsApp.PhoneID) && isReal(cfg.Channels.WhatsApp.APIToken) {
+		ch = append(ch, dto.ChannelStatus{
+			ID: "whatsapp", Name: "WhatsApp", Type: "whatsapp", Status: "online",
+			Enabled: true,
+			Capabilities: dto.ChannelCapabilities{
+				HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true,
+			},
+		})
+	}
+	if cfg.Channels.Twilio.Enabled && isReal(cfg.Channels.Twilio.AccountSID) && isReal(cfg.Channels.Twilio.AuthToken) {
+		ch = append(ch, dto.ChannelStatus{
+			ID: "twilio", Name: "Twilio", Type: "twilio", Status: "online",
+			Enabled: true,
+			Capabilities: dto.ChannelCapabilities{
+				HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true,
+			},
+		})
+	}
+	if cfg.Channels.Mattermost.Enabled {
+		for _, profile := range cfg.Channels.Mattermost.Profiles {
+			if !isReal(profile.BotToken) {
+				continue
+			}
+			name := profile.Name
+			if name == "" {
+				name = "default"
+			}
+			key := "mattermost:" + strings.ToLower(name)
+			ch = append(ch, dto.ChannelStatus{
+				ID: key, Name: "Mattermost: " + name, Type: "mattermost", Status: "online",
+				Enabled: true,
+				Capabilities: dto.ChannelCapabilities{
+					HasTextStream: true, HasMediaSupport: true,
+				},
+			})
+		}
 	}
 	return ch
 }
