@@ -94,9 +94,12 @@ type ChannelSecretsConfig {
   twilioAccountSid: String
   twilioAuthToken:  String
   twilioFromNumber: String
-  slackEnabled:     Boolean
-  slackBotToken:    String
-  slackAppToken:    String
+  slackEnabled:              Boolean
+  slackBotToken:             String
+  slackAppToken:             String
+  mattermostEnabled:         Boolean
+  mattermostServerURL:       String
+  mattermostBotToken:        String
 }
 
 type ActiveSession {
@@ -193,10 +196,13 @@ input UpdateConfigInput {
   channelTwilioAccountSid: String
   channelTwilioAuthToken:  String
   channelTwilioFromNumber: String
-  channelSlackEnabled:     Boolean
-  channelSlackBotToken:    String
-  channelSlackAppToken:     String
-  wizardCompleted:         Boolean
+  channelSlackEnabled:          Boolean
+  channelSlackBotToken:         String
+  channelSlackAppToken:         String
+  channelMattermostEnabled:     Boolean
+  channelMattermostServerURL:   String
+  channelMattermostBotToken:    String
+  wizardCompleted:              Boolean
 }
 
 extend type Query {

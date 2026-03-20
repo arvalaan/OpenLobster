@@ -49,6 +49,8 @@ func (a *ConfigUpdateAdapter) Apply(ctx context.Context, input map[string]interf
 			channelTouched["discord"] = true
 		case "channelSlackEnabled", "channelSlackBotToken", "channelSlackAppToken":
 			channelTouched["slack"] = true
+		case "channelMattermostEnabled", "channelMattermostServerURL", "channelMattermostBotToken":
+			channelTouched["mattermost"] = true
 		case "channelWhatsAppEnabled", "channelWhatsAppPhoneId", "channelWhatsAppApiToken":
 			channelTouched["whatsapp"] = true
 		case "channelTwilioEnabled", "channelTwilioAccountSid", "channelTwilioAuthToken", "channelTwilioFromNumber":
@@ -208,10 +210,13 @@ func InputToViperKeyMap() map[string]string {
 		"channelTwilioAccountSid": "channels.twilio.account_sid",
 		"channelTwilioAuthToken":  "channels.twilio.auth_token",
 		"channelTwilioFromNumber": "channels.twilio.from_number",
-		"channelSlackEnabled":     "channels.slack.enabled",
-		"channelSlackBotToken":    "channels.slack.bot_token",
-		"channelSlackAppToken":    "channels.slack.app_token",
-		"wizardCompleted":         "wizard.completed",
-		"reasoningLevel":          "agent.reasoning_level",
+		"channelSlackEnabled":          "channels.slack.enabled",
+		"channelSlackBotToken":         "channels.slack.bot_token",
+		"channelSlackAppToken":         "channels.slack.app_token",
+		"channelMattermostEnabled":     "channels.mattermost.enabled",
+		"channelMattermostServerURL":   "channels.mattermost.server_url",
+		"channelMattermostBotToken":    "channels.mattermost.profiles[0].bot_token",
+		"wizardCompleted":              "wizard.completed",
+		"reasoningLevel":               "agent.reasoning_level",
 	}
 }

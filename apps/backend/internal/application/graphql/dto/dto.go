@@ -323,7 +323,10 @@ type ChannelSecretsSnapshot struct {
 	TwilioAccountSid string
 	TwilioAuthToken  string
 	TwilioFromNumber string
-	SlackEnabled     bool
-	SlackBotToken    string
-	SlackAppToken    string
+	SlackEnabled          bool
+	SlackBotToken         string
+	SlackAppToken         string
+	MattermostEnabled     bool
+	MattermostServerURL   string
+	MattermostBotToken    string
 }
