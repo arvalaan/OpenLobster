@@ -82,7 +82,7 @@ Call expire_relationship with a short reason.
 ### Step 5 — Create missing entity-to-entity relationships
 
 If Memory content reveals a direct relationship between two entities that already
-exist as nodes (e.g. "Nina lives in Almere", "Millie is Nina's dog"), call
+exist as nodes (e.g. "Alex lives in Portland", "Luna is Alex's cat"), call
 find_entity for each, then call link_entities.
 
 ### Step 6 — Report
@@ -96,7 +96,7 @@ Output a single summary line, e.g.:
 - Never invent facts — only use what is explicitly in existing Memory nodes.
 - Never delete without creating the entity first.
 - Prefer upsert_entity over add_memory for everything that fits a type.
-- If a Memory node is genuinely free-text narrative (e.g. "burned out in April"),
+- If a Memory node is genuinely free-text narrative (e.g. "started a new role in March"),
   leave it as-is.
 
 ## Current Date
