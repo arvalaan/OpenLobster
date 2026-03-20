@@ -194,10 +194,11 @@ type WizardConfig struct {
 }
 
 type AgentConfig struct {
-	Name         string             `mapstructure:"name"`
-	SystemPrompt string             `mapstructure:"system_prompt"`
-	Provider     string             `mapstructure:"provider"`
-	Capabilities CapabilitiesConfig `mapstructure:"capabilities"`
+	Name            string             `mapstructure:"name"`
+	SystemPrompt    string             `mapstructure:"system_prompt"`
+	Provider        string             `mapstructure:"provider"`
+	MaxOutputTokens int                `mapstructure:"max_output_tokens"`
+	Capabilities    CapabilitiesConfig `mapstructure:"capabilities"`
 }
 
 type CapabilitiesConfig struct {
@@ -501,6 +502,7 @@ func setDefaults() {
 	viper.SetDefault("channels.mattermost.server_url", "")
 	// Default agent name (shown in navbar)
 	viper.SetDefault("agent.name", "OpenLobster")
+	viper.SetDefault("agent.max_output_tokens", 4096)
 	// Default capabilities: subagents, memory, mcp, filesystem, sessions enabled
 	viper.SetDefault("agent.capabilities.subagents", true)
 	viper.SetDefault("agent.capabilities.memory", true)
@@ -551,6 +553,7 @@ func bootstrapEncryptedConfig(path string) error {
 	v.SetDefault("permissions.default_mode", "deny")
 	v.SetDefault("providers.ollama.endpoint", "http://localhost:11434")
 	v.SetDefault("agent.name", "OpenLobster")
+	v.SetDefault("agent.max_output_tokens", 4096)
 	v.SetDefault("agent.capabilities.subagents", true)
 	v.SetDefault("agent.capabilities.memory", true)
 	v.SetDefault("agent.capabilities.mcp", true)

@@ -13,13 +13,17 @@ import (
 	"github.com/neirth/openlobster/internal/infrastructure/config"
 )
 
-// MaxOutputTokens is the fixed output-token limit for AI completions (~2000 chars, fits Discord).
-const MaxOutputTokens = 500
+// defaultMaxOutputTokens is used when the config does not specify a value.
+const defaultMaxOutputTokens = 4096
 
 // BuildFromConfig creates the AIProviderPort that matches cfg.Agent.Provider
 // when explicitly set, falling back to the first provider with valid credentials.
 // Returns nil if no provider is configured.
 func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
+	maxTokens := cfg.Agent.MaxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxOutputTokens
+	}
 	switch ProviderName(cfg) {
 	case "openai":
 		model := cfg.Providers.OpenAI.Model
@@ -27,15 +31,15 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 			model = "gpt-4o"
 		}
 		if baseURL := cfg.Providers.OpenAI.BaseURL; baseURL != "" {
-			return aiopenai.NewAdapterWithEndpoint(baseURL, cfg.Providers.OpenAI.APIKey, model, MaxOutputTokens)
+			return aiopenai.NewAdapterWithEndpoint(baseURL, cfg.Providers.OpenAI.APIKey, model, maxTokens)
 		}
-		return aiopenai.NewAdapter(cfg.Providers.OpenAI.APIKey, model, MaxOutputTokens)
+		return aiopenai.NewAdapter(cfg.Providers.OpenAI.APIKey, model, maxTokens)
 	case "openrouter":
 		model := cfg.Providers.OpenRouter.DefaultModel
 		if model == "" {
 			model = "openai/gpt-4o"
 		}
-		return aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, MaxOutputTokens)
+		return aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, maxTokens)
 	case "openai-compatible":
 		model := cfg.Providers.OpenAICompat.Model
 		if model == "" {
@@ -45,32 +49,32 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 			cfg.Providers.OpenAICompat.BaseURL,
 			cfg.Providers.OpenAICompat.APIKey,
 			model,
-			MaxOutputTokens,
+			maxTokens,
 		)
 	case "ollama":
 		model := cfg.Providers.Ollama.DefaultModel
 		if model == "" {
 			model = "llama3"
 		}
-		return aiollama.NewAdapterWithOptions(cfg.Providers.Ollama.Endpoint, cfg.Providers.Ollama.APIKey, model, MaxOutputTokens, cfg.Logging.Level)
+		return aiollama.NewAdapterWithOptions(cfg.Providers.Ollama.Endpoint, cfg.Providers.Ollama.APIKey, model, maxTokens, cfg.Logging.Level)
 	case "anthropic":
 		model := cfg.Providers.Anthropic.Model
 		if model == "" {
 			model = "claude-sonnet-4-6"
 		}
-		return aianthropicadapter.NewAdapter(cfg.Providers.Anthropic.APIKey, model, MaxOutputTokens)
+		return aianthropicadapter.NewAdapter(cfg.Providers.Anthropic.APIKey, model, maxTokens)
 	case "opencode-zen":
 		model := cfg.Providers.OpenCode.Model
 		if model == "" {
 			model = "kimi-k2.5"
 		}
-		return aizenadapter.NewAdapter(cfg.Providers.OpenCode.APIKey, model, MaxOutputTokens)
+		return aizenadapter.NewAdapter(cfg.Providers.OpenCode.APIKey, model, maxTokens)
 	case "docker-model-runner":
 		model := cfg.Providers.DockerModelRunner.DefaultModel
 		if model == "" {
 			model = "ai/mistral-nemo"
 		}
-		return aidockermodelrunner.NewAdapter(cfg.Providers.DockerModelRunner.Endpoint, model, MaxOutputTokens)
+		return aidockermodelrunner.NewAdapter(cfg.Providers.DockerModelRunner.Endpoint, model, maxTokens)
 	}
 	return nil
 }
