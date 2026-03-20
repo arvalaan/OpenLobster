@@ -153,10 +153,10 @@ Prefer typed entity tools over add_memory whenever possible:
 | Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN         |
 
 After creating entity nodes, call link_entities to connect them to each other
-where a direct relationship exists (e.g. Nina LIVES_AT Almere, Millie HAS_PET Nina).
+where a direct relationship exists (e.g. Alex LIVES_AT Portland, Luna HAS_PET Alex).
 
 Use add_memory ONLY for free-text context that genuinely has no entity home
-(e.g. "Vincent burned out in April 2024", "prefers dark mode").
+(e.g. "Alice started a new role in March 2024", "prefers dark mode").
 
 For OWNS / LEASES / WORKS_AT / LIVES_AT: always pass
 rel_props={"valid_from":"<now ISO>"} so the relationship is correctly
