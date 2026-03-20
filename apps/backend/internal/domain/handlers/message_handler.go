@@ -762,25 +762,23 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 						log.Printf("messaging: failed to send intermediate message to %s (channel_id=%q): %v", input.ChannelType, input.ChannelID, err)
 					}
 				}
-			} else if role == "tool" && h.messageRepo != nil {
-				msg := &models.Message{
-					ID:             uuid.New(),
-					ChannelID:      input.ChannelID,
-					Content:        content,
-					Role:           role,
-					Timestamp:      time.Now(),
-					Metadata:       make(map[string]interface{}),
-					ConversationID: conversationID,
-				}
-				_ = h.messageRepo.Save(ctx, msg)
+			} else if role == "tool" {
+				// Tool result messages are not persisted to DB because models.Message
+				// has no ToolCallID field â storing them without the matching ID causes
+				// Anthropic/OpenRouter to reject the conversation history with a
+				// validation error on replay (tool_use_id must match ^[a-zA-Z0-9_-]+).
+				// The final synthesis response already incorporates the tool output,
+				// so the DB history remains coherent.
+				// We still publish the event so the UI can display tool activity live.
 				if h.eventBus != nil {
+					now := time.Now()
 					_ = h.eventBus.Publish(ctx, events.NewEvent(events.EventMessageSent, events.MessageSentPayload{
-						MessageID:   msg.ID.String(),
+						MessageID:   uuid.New().String(),
 						ChannelID:   conversationID,
 						ChannelType: input.ChannelType,
 						Content:     content,
 						Role:        role,
-						Timestamp:   msg.Timestamp,
+						Timestamp:   now,
 					}))
 				}
 			}
