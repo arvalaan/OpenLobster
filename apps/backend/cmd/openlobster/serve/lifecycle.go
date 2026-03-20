@@ -36,11 +36,11 @@ func (a *App) startAndWait() {
 
 	// Scheduler
 	if a.Cfg.Scheduler.Enabled {
-		dispatcher := domainhandlers.NewLoopbackDispatcher(a.MsgHandler)
+		dispatcher := domainhandlers.NewLoopbackDispatcher(a.MsgHandler, a.BackgroundAIProvider)
 		consolidationSvc := memory_consolidation.NewService(
 			a.MessageRepo,
 			a.MemoryAdapter,
-			a.AIProvider, // This should be the provider configured for memory
+			a.BackgroundAIProvider,
 			a.UserRepo,
 			a.SessionRepo,
 			a.ToolRegistry,
@@ -54,6 +54,7 @@ func (a *App) startAndWait() {
 		)
 		a.SchedulerNotify = sched.Notify
 		a.SchedulerUpdateMemoryInterval = sched.UpdateMemoryInterval
+		a.seedSystemTasks(ctx)
 		go sched.Run(ctx)
 	}
 

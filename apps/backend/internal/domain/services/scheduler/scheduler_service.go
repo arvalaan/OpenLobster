@@ -9,8 +9,7 @@
 //  1. The soonest entry is due   → fireDue: pop all due entries, dispatch goroutines
 //  2. An external change arrives → Notify: reload DB, reset timer
 //  3. A cyclic task completes    → rescheduleCh: re-insert at next cron time
-//  4. The memory interval fires  → consolidateMemory goroutine
-//  5. Context is cancelled       → clean shutdown
+//  4. Context is cancelled       → clean shutdown
 package scheduler
 
 import (
@@ -54,8 +53,8 @@ func (h *taskHeap) Pop() interface{} {
 
 // Scheduler is a libuv-inspired, single-threaded event loop.
 type Scheduler struct {
-	dispatcher  ports.TaskDispatcherPort
-	taskRepo    ports.TaskRepositoryPort
+	dispatcher    ports.TaskDispatcherPort
+	taskRepo      ports.TaskRepositoryPort
 	memInterval   time.Duration
 	memEnabled    bool
 	consolidation ports.MemoryConsolidationPort

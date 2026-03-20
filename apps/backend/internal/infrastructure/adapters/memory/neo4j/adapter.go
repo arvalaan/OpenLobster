@@ -419,10 +419,10 @@ func (a *Adapter) DeleteRelation(ctx context.Context, from, to string) error {
 }
 
 func (a *Adapter) QueryGraph(ctx context.Context, cypher string) (ports.GraphResult, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-	session := a.driver.NewSession(context.Background(), neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	session := a.driver.NewSession(context.Background(), neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(context.Background())
 
 	result, err := session.Run(ctx, cypher, nil)

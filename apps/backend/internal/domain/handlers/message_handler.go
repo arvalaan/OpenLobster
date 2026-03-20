@@ -180,7 +180,12 @@ func (r *agenticRunner) runAgenticLoop(ctx context.Context, messages []ports.Cha
 		if err != nil {
 			return "", err
 		}
-		if resp.StopReason != "tool_use" || len(resp.ToolCalls) == 0 {
+		// Treat "length" truncation as "tool_use" when tool calls are present —
+		// the model batched too many calls and hit the output token limit, but
+		// the tool calls it did emit are still valid and must be executed.
+		hasToolCalls := len(resp.ToolCalls) > 0
+		isToolUse := resp.StopReason == "tool_use" || (resp.StopReason == "length" && hasToolCalls)
+		if !isToolUse || !hasToolCalls {
 			if strings.TrimSpace(resp.Content) != "" {
 				return resp.Content, nil
 			}
@@ -683,7 +688,9 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 	if err != nil {
 		return err
 	}
-	messages = injectMemoryTurn(messages)
+	if !isLoopback {
+		messages = injectMemoryTurn(messages)
+	}
 	messages = injectSpeakerTurn(messages)
 
 	if h.compactionSvc != nil && h.messageRepo != nil && h.runner.aiProvider != nil {
@@ -691,7 +698,9 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 		if h.compactionSvc.ShouldCompact(messages, maxTokens) {
 			_, _ = h.compactionSvc.Compact(ctx, conversationID)
 			messages, _ = h.buildMessages(ctx, conversationID, systemPrompt, &latestMsg)
-			messages = injectMemoryTurn(messages)
+			if !isLoopback {
+				messages = injectMemoryTurn(messages)
+			}
 			messages = injectSpeakerTurn(messages)
 		}
 	}

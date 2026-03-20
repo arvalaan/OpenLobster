@@ -11,6 +11,8 @@ import (
 	appcontext "github.com/neirth/openlobster/internal/domain/context"
 )
 
+const archivistPrefix = "[ARCHIVIST]"
+
 const loopbackChannelID = "loopback"
 
 // buildLoopbackSystemPrompt returns a system prompt for autonomous loopback tasks
@@ -135,6 +137,31 @@ the long-term memory graph. You do NOT interact with users.
     - If found: SKIP this fact, do NOT add it again
     - If NOT found: proceed to add it
 
+## Entity Storage
+
+Prefer typed entity tools over add_memory whenever possible:
+
+| Information type        | Tool to use                           | Example relation      |
+|------------------------|---------------------------------------|-----------------------|
+| People in user's life  | upsert_entity type=Person             | SPOUSE_OF, FRIEND_OF  |
+| Pets                   | upsert_entity type=Pet                | HAS_PET               |
+| Locations              | upsert_entity type=Place              | LIVES_AT, FREQUENTS   |
+| Employers / orgs       | upsert_entity type=Organization       | WORKS_AT, MEMBER_OF   |
+| Appointments / events  | upsert_entity type=Event              | SCHEDULED_FOR         |
+| Current goals/projects | upsert_entity type=Goal               | WORKING_ON            |
+| Vehicles/devices/subs  | upsert_entity type=Asset + OWNS/LEASES| always set valid_from |
+| Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN         |
+
+After creating entity nodes, call link_entities to connect them to each other
+where a direct relationship exists (e.g. Nina LIVES_AT Almere, Millie HAS_PET Nina).
+
+Use add_memory ONLY for free-text context that genuinely has no entity home
+(e.g. "Vincent burned out in April 2024", "prefers dark mode").
+
+For OWNS / LEASES / WORKS_AT / LIVES_AT: always pass
+rel_props={"valid_from":"<now ISO>"} so the relationship is correctly
+timestamped for future temporal queries.
+
 5. When storing new facts:
     - Always pass for_user=<participant_name> (from the conversation's participantName field) to every add_memory, search_memory, and set_user_property call so that facts are stored under the correct user and not under a shared loopback user.
     - When calling add_memory, also pass entity_type=<person|place|thing|story|fact> based on the entity referenced by label:
@@ -150,7 +177,7 @@ the long-term memory graph. You do NOT interact with users.
 
 6. After processing all conversations, stop. Do not send any visible reply.
 
-## Rules for Node Creation
+## Rules
 
 - Only store verifiable facts explicitly stated in the conversation
 - Do not invent or infer information that is not clearly implied
@@ -179,22 +206,24 @@ func NewLoopbackDispatcher(handler *MessageHandler) *LoopbackDispatcher {
 }
 
 // Dispatch sends prompt through the full agentic pipeline via the loopback channel.
-// For loopback tasks, we build a specialized system prompt designed for autonomous
-// task execution without user interaction.
+// Prompts prefixed with "[ARCHIVIST]" are routed to the Archivist graph curation
+// agent; all others use the standard memory consolidation system prompt.
 func (d *LoopbackDispatcher) Dispatch(ctx context.Context, prompt string) error {
-	// Build context for the loopback task (no specific user)
-	agentCtx, ctxErr := d.handler.contextInjector.BuildContext(ctx, "", "")
-	if ctxErr != nil {
-		return ctxErr
+	sysPrompt := buildMemoryConsolidationSystemPrompt()
+	content := prompt
+	if strings.HasPrefix(prompt, archivistPrefix) {
+		sysPrompt = buildArchivistSystemPrompt()
+		content = strings.TrimPrefix(prompt, archivistPrefix+" ")
+		if content == prompt {
+			// handle "[ARCHIVIST]" with no trailing space
+			content = strings.TrimPrefix(prompt, archivistPrefix)
+		}
+		content = strings.TrimSpace(content)
 	}
-
-	// Build the loopback-specific system prompt
-	systemPrompt := buildLoopbackSystemPrompt(agentCtx)
-
 	return d.handler.Handle(ctx, HandleMessageInput{
 		ChannelID:    loopbackChannelID,
-		Content:      prompt,
+		Content:      content,
 		ChannelType:  loopbackChannelID,
-		SystemPrompt: systemPrompt,
+		SystemPrompt: sysPrompt,
 	})
 }
