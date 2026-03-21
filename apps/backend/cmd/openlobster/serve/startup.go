@@ -27,6 +27,12 @@ func (a *App) seedSystemTasks(ctx context.Context) {
 			domainservices.MemoryConsolidationPrompt,
 			durationToHourlyCron(a.Cfg.Scheduler.MemoryInterval),
 		)
+		// Confidence check: daily at 10:00 — reviews low-confidence assertions
+		// and proactively messages users to verify uncertain information.
+		a.seedTaskIfAbsent(ctx,
+			domainservices.ConfidenceCheckPrompt,
+			"0 10 * * *",
+		)
 	}
 }
 

@@ -66,6 +66,8 @@ are known conflict zones. For each one the correct resolution is described.
 - **Resolution**: keep our version — the ticker was removed because consolidation
   now runs as a visible cron task seeded at startup (`startup.go`). Do NOT bring
   the ticker back; it would double-run consolidation.
+  Also keep the `ConfidenceCheckPrompt` constant — it drives the daily assertion
+  verification task.
 
 ### 3. `apps/backend/cmd/openlobster/serve/lifecycle.go`
 - **Risk**: upstream may change `NewScheduler(...)` call signature or remove the
@@ -81,9 +83,12 @@ are known conflict zones. For each one the correct resolution is described.
 
 ### 5. `apps/backend/internal/domain/handlers/loopback_dispatcher.go`
 - **Risk**: upstream may rewrite `buildMemoryConsolidationSystemPrompt()`.
-- **Resolution**: merge carefully. Keep our `## Entity Storage` table and the
-  `[ARCHIVIST]` prefix routing in `Dispatch()`. Adopt upstream improvements to the
-  instruction wording but do not drop the entity storage section.
+- **Resolution**: merge carefully. Keep our `## Entity Storage` table, the
+  `[ARCHIVIST]` prefix routing, and the `[CONFIDENCE_CHECK]` prefix routing in
+  `Dispatch()`. Keep `buildConfidenceCheckSystemPrompt()` and
+  `buildArchivistSystemPrompt()` (in `archivist_dispatcher.go`).
+  Adopt upstream improvements to the consolidation instruction wording but do
+  not drop the entity storage section or the assertion-aware extraction steps.
 
 ### 6. `apps/backend/internal/domain/handlers/message_handler.go`
 - **Risk**: upstream may reset `maxToolRounds` to 5, or remove the `!isLoopback`
@@ -112,6 +117,43 @@ are known conflict zones. For each one the correct resolution is described.
 - **Risk**: upstream may revert `QueryGraph` back to `AccessModeRead`.
 - **Resolution**: keep `AccessModeWrite` + `mu.Lock()`. Using read-only sessions
   causes MERGE/CREATE to silently return 0 rows with no error.
+
+### 9. `apps/backend/internal/domain/services/mcp/entity_tools.go`
+- **Risk**: upstream may add or modify entity tools without our validation layer.
+- **Resolution**: this file is heavily extended on our branch. Keep:
+  - `validRelationTypes` allowlist (17 types) — reject unknown relations in Go
+  - `validNodePropertyKeys` / `validRelPropertyKeys` allowlists
+  - `validatePropertyKeys()` helper
+  - Relation validation in `UpsertEntityTool`, `LinkEntitiesTool`
+  - Property key validation in `UpsertEntityTool`, `LinkEntitiesTool`, `PromoteAssertionTool`
+  - `txn_created_at` / `txn_updated_at` in `UpsertEntityTool` Cypher
+  - Node existence check in `LinkEntitiesTool`
+  - Four new tools: `UpsertAssertionTool`, `CreateEpisodeTool`, `ListAssertionsTool`,
+    `PromoteAssertionTool` — plus their registration in `RegisterEntityTools()`
+  - `contentHash()` helper
+  If upstream adds new entity tools, add relation/property validation to them too.
+
+### 10. `apps/backend/internal/domain/handlers/archivist_dispatcher.go`
+- **Risk**: upstream may rewrite or remove the Archivist system prompt.
+- **Resolution**: keep our Node Type Reference table (includes Assertion and Episode
+  rows), Step 1.5 (assertion review/promotion), and the four assertion quality rules.
+  Adopt upstream wording improvements but do not remove assertion-related sections.
+
+### 11. `apps/backend/internal/domain/context/context.go`
+- **Risk**: upstream may modify `formatGraphAsText()`.
+- **Resolution**: keep our second loop that emits typed entity nodes (not just facts)
+  in conversation context. Without it, entities stored in the graph are invisible to
+  the agent during conversations.
+
+### 12. `apps/backend/cmd/openlobster/serve/startup.go`
+- **Risk**: upstream may modify `seedSystemTasks()`.
+- **Resolution**: keep the confidence check task seed (`ConfidenceCheckPrompt` at
+  `"0 10 * * *"`). It is gated behind `MemoryEnabled` alongside the consolidation
+  task.
+
+### 13. `apps/backend/internal/domain/services/services.go`
+- **Risk**: upstream may not have our re-exported constants.
+- **Resolution**: keep `ConfidenceCheckPrompt = svcscheduler.ConfidenceCheckPrompt`.
 
 ### Rebase procedure
 ```bash

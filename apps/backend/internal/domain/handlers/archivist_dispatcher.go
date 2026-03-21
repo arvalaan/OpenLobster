@@ -21,18 +21,20 @@ Typed entity labels you may create:
 
 | Label        | Typical relations from User              | Notes                                |
 |-------------|------------------------------------------|--------------------------------------|
-| Person       | SPOUSE_OF, FRIEND_OF, COLLEAGUE_OF, …   | Anyone in the user's life            |
+| Person       | KNOWS (role=friend/spouse/colleague/…)  | Anyone in the user's life            |
 | Pet          | HAS_PET                                  | Household animals                    |
-| Place        | LIVES_AT, FREQUENTS, VISITED             | Homes, workplaces, cities, regions   |
-| Organization | WORKS_AT, MEMBER_OF, PATIENT_OF          | Employers, schools, clinics          |
-| Event        | ATTENDED, SCHEDULED_FOR                  | Appointments, milestones, travel     |
+| Place        | LOCATED_AT (role=lives/frequents/visited)| Homes, workplaces, cities, regions   |
+| Organization | AFFILIATED_WITH (role=employee/member)   | Employers, schools, clinics          |
+| Event        | SCHEDULED_FOR (role=upcoming/attended)   | Appointments, milestones, travel     |
 | Goal         | WORKING_ON, COMPLETED                    | Projects, career goals, health goals |
-| Asset        | OWNS, LEASES, SUBSCRIBES_TO              | Vehicles, devices, subscriptions     |
-| Topic        | INTERESTED_IN, EXPERT_IN, LEARNING       | Interests, hobbies, domains          |
+| Asset        | HAS (role=owns/leases/subscribes)        | Vehicles, devices, subscriptions     |
+| Topic        | INTERESTED_IN (role=expert/learning)     | Interests, hobbies, domains          |
 | Memory       | HAS_NOTE                                 | Free-text catch-all (use sparingly)  |
+| Assertion    | ASSERTED (User→Assertion)                | Staging area with confidence tracking |
+| Episode      | INVOLVES (Episode→User)                  | Groups assertions from one run       |
 
-Transient relationships (OWNS, LEASES, SUBSCRIBES_TO, WORKS_AT, LIVES_AT)
-must always carry valid_from. Pass rel_props={"valid_from":"<ISO datetime>"}.
+Transient relationships (HAS, AFFILIATED_WITH, LOCATED_AT)
+must always carry valid_from and role. Pass rel_props={"valid_from":"<ISO datetime>", "role":"<specificity>"}.
 
 ## Workflow
 
@@ -51,6 +53,14 @@ If there are multiple participant names, process each one separately.
 2. Call search_memory with broad queries and for_user=<name>:
    "user", "person", "pet", "place", "work", "asset", "goal", "car", "interest"
    to discover existing Memory/Fact nodes.
+
+### Step 1.5 — Review Assertions for Promotion
+
+1. Call list_assertions(for_user=<name>, unpromoted_only=true, min_confidence=0.7)
+2. For each assertion with confidence >= 0.7 that maps to an entity type:
+   call promote_assertion with the appropriate entity_type, entity_name, and relation.
+3. Assertions with confidence < 0.3 and mention_count=1 that are > 30 days old:
+   candidates for expiry (set valid_to, do not delete).
 
 ### Step 2 — Promote Memory nodes to typed entities
 
@@ -98,6 +108,10 @@ Output a single summary line, e.g.:
 - Prefer upsert_entity over add_memory for everything that fits a type.
 - If a Memory node is genuinely free-text narrative (e.g. "started a new role in March"),
   leave it as-is.
+- Never promote an Assertion with confidence < 0.7.
+- Never delete an Assertion — it is provenance.
+- Never set confidence, txn_created_at, or source manually — they are Go-managed.
+- Never create entity nodes without linking to at least one User.
 
 ## Current Date
 

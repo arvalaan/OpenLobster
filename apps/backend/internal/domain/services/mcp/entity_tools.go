@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,6 +13,50 @@ import (
 // entityNeoUnavailable is returned when the graph backend does not support
 // Cypher (e.g. the GML file backend). The caller can fall back to add_memory.
 const entityNeoUnavailable = `{"error":"entity nodes require a Neo4j backend; use add_memory as a fallback"}`
+
+// validRelationTypes is the Go-enforced allowlist of relationship types.
+// Any relation not in this set is rejected before touching the graph.
+// Use the "role" rel_prop for specificity (e.g. KNOWS + role=spouse).
+var validRelationTypes = map[string]bool{
+	// User-to-entity
+	"HAS_ENTITY": true, "KNOWS": true, "HAS_PET": true,
+	"LOCATED_AT": true, "AFFILIATED_WITH": true,
+	"SCHEDULED_FOR": true, "WORKING_ON": true, "COMPLETED": true,
+	"HAS": true, "INTERESTED_IN": true, "HAS_NOTE": true,
+	// Assertion/Episode
+	"ASSERTED": true, "ABOUT": true, "DERIVED_FROM": true,
+	"IN_EPISODE": true, "INVOLVES": true,
+	// Entity-to-entity
+	"PART_OF": true,
+}
+
+// validNodePropertyKeys is the allowlist of property keys on entity nodes.
+// Anything too specific for a key goes into "description" or "notes" as a value.
+var validNodePropertyKeys = map[string]bool{
+	"description": true, "category": true, "notes": true, "url": true,
+	"species": true, "breed": true, "industry": true,
+	"city": true, "country": true, "address": true,
+	"date": true, "deadline": true, "status": true,
+	"make": true, "model": true, "year": true,
+	"email": true, "phone": true,
+}
+
+// validRelPropertyKeys is the allowlist of property keys on relationships.
+var validRelPropertyKeys = map[string]bool{
+	"role": true, "valid_from": true, "valid_to": true,
+	"notes": true, "source": true, "txn_created_at": true,
+	"expiry_reason": true,
+}
+
+// validatePropertyKeys checks that all keys in props are in the allowed set.
+func validatePropertyKeys(props map[string]interface{}, allowed map[string]bool) error {
+	for k := range props {
+		if !allowed[k] {
+			return fmt.Errorf("unknown property key %q; see allowed list", k)
+		}
+	}
+	return nil
+}
 
 // resolveEntityUserID returns the user ID to use for entity operations.
 // It mirrors the for_user logic from AddMemoryTool.
@@ -53,15 +99,16 @@ func (t *UpsertEntityTool) Definition() ToolDefinition {
 		Description: "Create or update a typed entity node (Person, Pet, Place, Organization, Event, Goal, Asset, Topic) " +
 			"and create/update the relationship from the user node to it. " +
 			"Use this instead of add_memory whenever the information clearly maps to one of the typed entity categories. " +
-			"OWNS / LEASES / SUBSCRIBES_TO / WORKS_AT / LIVES_AT relationships must always include valid_from in rel_props.",
+			"HAS / AFFILIATED_WITH / LOCATED_AT relationships must always include valid_from in rel_props. " +
+			"Use the role rel_prop to capture specificity (e.g. relation=KNOWS, rel_props={\"role\":\"spouse\"}).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"type":       {"type": "string", "description": "Entity label: Person | Pet | Place | Organization | Event | Goal | Asset | Topic"},
 				"name":       {"type": "string", "description": "Canonical name — used as uniqueness key within the type"},
-				"properties": {"type": "object", "description": "Extra key/value pairs merged onto the node (e.g. species, city, category)"},
-				"relation":   {"type": "string", "description": "Relationship type from user to entity. Defaults to HAS_ENTITY."},
-				"rel_props":  {"type": "object", "description": "Properties on the relationship (e.g. {\"valid_from\": \"2024-01-01T00:00:00Z\"})"},
+				"properties": {"type": "object", "description": "Allowed keys: description, category, notes, url, species, breed, industry, city, country, address, date, deadline, status, make, model, year, email, phone"},
+				"relation":   {"type": "string", "description": "Relationship type from user to entity: HAS_ENTITY, KNOWS, HAS_PET, LOCATED_AT, AFFILIATED_WITH, SCHEDULED_FOR, WORKING_ON, COMPLETED, HAS, INTERESTED_IN, HAS_NOTE. Defaults to HAS_ENTITY."},
+				"rel_props":  {"type": "object", "description": "Allowed keys: role, valid_from, valid_to, notes (e.g. {\"role\": \"spouse\", \"valid_from\": \"2024-01-01T00:00:00Z\"})"},
 				"for_user":   {"type": "string", "description": "User display name. Only for consolidation agents — omit for normal interactions."}
 			},
 			"required": ["type", "name"]
@@ -88,6 +135,9 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 	if relation == "" {
 		relation = "HAS_ENTITY"
 	}
+	if !validRelationTypes[relation] {
+		return nil, fmt.Errorf("unknown relation %q; see allowed list", relation)
+	}
 
 	userID := resolveEntityUserID(ctx, params)
 	if userID == "" {
@@ -103,6 +153,9 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 			properties[k] = v
 		}
 	}
+	if err := validatePropertyKeys(properties, validNodePropertyKeys); err != nil {
+		return nil, fmt.Errorf("upsert_entity properties: %w", err)
+	}
 
 	// Build relationship property map
 	relProps := map[string]interface{}{}
@@ -111,41 +164,43 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 			relProps[k] = v
 		}
 	}
+	if err := validatePropertyKeys(relProps, validRelPropertyKeys); err != nil {
+		return nil, fmt.Errorf("upsert_entity rel_props: %w", err)
+	}
 	if _, hasValidFrom := relProps["valid_from"]; !hasValidFrom {
 		// Temporal relationships always need valid_from; set it to now if not provided
 		transientRels := map[string]bool{
-			"OWNS": true, "LEASES": true, "SUBSCRIBES_TO": true,
-			"WORKS_AT": true, "LIVES_AT": true,
+			"HAS": true, "AFFILIATED_WITH": true, "LOCATED_AT": true,
 		}
 		if transientRels[relation] {
 			relProps["valid_from"] = now
 		}
 	}
 
-	// Encode extra node props as a JSON object so we can embed them in Cypher params.
-	// We pass everything via literal embedding (safe: all values are user-supplied
-	// strings that pass through json.Marshal, never raw SQL).
 	nodePropCypher := buildCypherPropsLiteral("e", properties)
 	relPropCypher := buildCypherPropsLiteral("r", relProps)
 
 	cypher := fmt.Sprintf(`
 MERGE (e:%s {name: %s})
-ON CREATE SET e.id = randomUUID(), e.extractedAt = %s, e.source = "conversation"%s
-ON MATCH  SET e.extractedAt = %s%s
+ON CREATE SET e.id = randomUUID(), e.extractedAt = %s, e.source = "conversation", e.txn_created_at = %s%s
+ON MATCH  SET e.extractedAt = %s, e.txn_updated_at = %s%s
 WITH e
 MATCH (u:User) WHERE u.id = %s OR u.name = %s
 MERGE (u)-[r:%s]->(e)
-ON CREATE SET r.valid_from = %s, r.source = "conversation"%s
+ON CREATE SET r.valid_from = %s, r.source = "conversation", r.txn_created_at = %s%s
 RETURN e.id AS id, e.name AS name`,
 		entityType,
 		jsonStr(name),
 		jsonStr(now),
+		jsonStr(now),
 		nodePropCypher,
+		jsonStr(now),
 		jsonStr(now),
 		nodePropCypher,
 		jsonStr(userID),
 		jsonStr(userID),
 		relation,
+		jsonStr(now),
 		jsonStr(now),
 		relPropCypher,
 	)
@@ -180,14 +235,14 @@ func (t *LinkEntitiesTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name: "link_entities",
 		Description: "Create a typed relationship between two existing entity nodes identified by their IDs. " +
-			"Use this to connect entities to each other (e.g. Person LIVES_AT Place, Pet HAS_PET Person).",
+			"Use this to connect entities to each other (e.g. Person LOCATED_AT Place, Pet HAS_PET Person).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"from_id":    {"type": "string", "description": "ID of the source entity node"},
-				"relation":   {"type": "string", "description": "Relationship type (e.g. LIVES_AT, SPOUSE_OF, WORKS_AT)"},
+				"relation":   {"type": "string", "description": "Relationship type (e.g. LOCATED_AT, KNOWS, AFFILIATED_WITH, HAS, PART_OF)"},
 				"to_id":      {"type": "string", "description": "ID of the target entity node"},
-				"properties": {"type": "object", "description": "Optional properties merged onto the relationship (e.g. valid_from, confidence)"}
+				"properties": {"type": "object", "description": "Allowed keys: role, valid_from, valid_to, notes"}
 			},
 			"required": ["from_id", "relation", "to_id"]
 		}`),
@@ -202,6 +257,23 @@ func (t *LinkEntitiesTool) Execute(ctx context.Context, params map[string]interf
 	if fromID == "" || relation == "" || toID == "" {
 		return nil, fmt.Errorf("from_id, relation and to_id are required")
 	}
+	if !validRelationTypes[relation] {
+		return nil, fmt.Errorf("unknown relation %q; see allowed list", relation)
+	}
+
+	// Verify both nodes exist before creating the relationship.
+	checkCypher := fmt.Sprintf(`MATCH (a {id: %s}), (b {id: %s}) RETURN count(*) AS cnt`,
+		jsonStr(fromID), jsonStr(toID))
+	checkResult, checkErr := t.Tools.Memory.QueryGraph(ctx, checkCypher)
+	if isCypherUnsupported(checkErr) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if checkErr != nil {
+		return nil, fmt.Errorf("link_entities: %w", checkErr)
+	}
+	if len(checkResult.Data) == 0 {
+		return nil, fmt.Errorf("link_entities: one or both nodes not found (from_id=%s, to_id=%s)", fromID, toID)
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	relProps := map[string]interface{}{}
@@ -209,6 +281,9 @@ func (t *LinkEntitiesTool) Execute(ctx context.Context, params map[string]interf
 		for k, v := range p {
 			relProps[k] = v
 		}
+	}
+	if err := validatePropertyKeys(relProps, validRelPropertyKeys); err != nil {
+		return nil, fmt.Errorf("link_entities properties: %w", err)
 	}
 	relPropCypher := buildCypherPropsLiteral("r", relProps)
 
@@ -566,10 +641,474 @@ RETURN count(r) AS expired`,
 }
 
 // ─────────────────────────────────────────────────────────────
+// UpsertAssertionTool
+// ─────────────────────────────────────────────────────────────
+
+type UpsertAssertionTool struct {
+	Tools InternalTools
+}
+
+func (t *UpsertAssertionTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name: "upsert_assertion",
+		Description: "Create or update an Assertion node — a claim extracted from conversation. " +
+			"Assertions serve as a staging area with confidence tracking before promotion to typed entities. " +
+			"Duplicate content (by hash) increments mention_count and bumps confidence.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"content":         {"type": "string", "description": "The claim text (max 2000 chars)"},
+				"label":           {"type": "string", "description": "Short display label for the assertion"},
+				"confidence":      {"type": "number", "description": "0.0-1.0; 0.8=explicit, 0.5=implied, 0.3=uncertain"},
+				"valid_from":      {"type": "string", "description": "RFC3339 timestamp for when the claim became true"},
+				"about_entity_id": {"type": "string", "description": "ID of an existing entity this assertion is about"},
+				"conversation_id": {"type": "string", "description": "ID of the source conversation"},
+				"for_user":        {"type": "string", "description": "User display name. Only for consolidation agents."}
+			},
+			"required": ["content"]
+		}`),
+	}
+}
+
+func (t *UpsertAssertionTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	content, _ := params["content"].(string)
+	if content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+	if len(content) > 2000 {
+		return nil, fmt.Errorf("content exceeds 2000 character limit")
+	}
+
+	label, _ := params["label"].(string)
+	if label == "" {
+		label = content
+		if len(label) > 80 {
+			label = label[:80]
+		}
+	}
+
+	conf := 0.5
+	if c, ok := params["confidence"].(float64); ok {
+		conf = c
+	}
+	if conf < 0.0 {
+		conf = 0.0
+	}
+	if conf > 1.0 {
+		conf = 1.0
+	}
+
+	validFrom, _ := params["valid_from"].(string)
+	aboutEntityID, _ := params["about_entity_id"].(string)
+	convID, _ := params["conversation_id"].(string)
+
+	userID := resolveEntityUserID(ctx, params)
+	if userID == "" {
+		return nil, fmt.Errorf("could not determine user identity")
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	hash := contentHash(content)
+
+	cypher := fmt.Sprintf(`
+MERGE (a:Assertion {contentHash: %s})
+ON CREATE SET a.id = randomUUID(), a.content = %s, a.label = %s,
+              a.confidence = %f, a.valid_from = %s,
+              a.txn_created_at = %s, a.source = "conversation",
+              a.conversation_id = %s, a.mention_count = 1, a.promoted = false
+ON MATCH SET  a.txn_updated_at = %s,
+              a.mention_count = a.mention_count + 1,
+              a.confidence = CASE WHEN a.confidence + 0.1 > 1.0 THEN 1.0
+                             ELSE a.confidence + 0.1 END
+WITH a
+MATCH (u:User) WHERE u.id = %s OR u.name = %s
+MERGE (u)-[r:ASSERTED]->(a)
+ON CREATE SET r.txn_created_at = %s
+RETURN a.id AS id, a.confidence AS confidence, a.mention_count AS mentions`,
+		jsonStr(hash),
+		jsonStr(content),
+		jsonStr(label),
+		conf,
+		jsonStr(validFrom),
+		jsonStr(now),
+		jsonStr(convID),
+		jsonStr(now),
+		jsonStr(userID),
+		jsonStr(userID),
+		jsonStr(now),
+	)
+
+	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
+	if isCypherUnsupported(err) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("upsert_assertion: %w", err)
+	}
+
+	// If about_entity_id is provided, create ABOUT edge.
+	if aboutEntityID != "" {
+		aboutCypher := fmt.Sprintf(`
+MATCH (a:Assertion {contentHash: %s}), (e {id: %s})
+MERGE (a)-[r:ABOUT]->(e)
+ON CREATE SET r.txn_created_at = %s
+RETURN type(r) AS rel`,
+			jsonStr(hash), jsonStr(aboutEntityID), jsonStr(now))
+		_, aboutErr := t.Tools.Memory.QueryGraph(ctx, aboutCypher)
+		if aboutErr != nil && !isCypherUnsupported(aboutErr) {
+			return nil, fmt.Errorf("upsert_assertion: failed to link ABOUT: %w", aboutErr)
+		}
+	}
+
+	id := ""
+	confidence := conf
+	mentions := 1
+	if len(result.Data) > 0 {
+		if v, ok := result.Data[0]["id"]; ok {
+			id = fmt.Sprintf("%v", v)
+		}
+		if v, ok := result.Data[0]["confidence"]; ok {
+			if n, ok := v.(float64); ok {
+				confidence = n
+			}
+		}
+		if v, ok := result.Data[0]["mentions"]; ok {
+			switch n := v.(type) {
+			case int64:
+				mentions = int(n)
+			case float64:
+				mentions = int(n)
+			}
+		}
+	}
+	return json.RawMessage(fmt.Sprintf(`{"status":"ok","id":%s,"confidence":%.2f,"mentions":%d}`,
+		jsonStr(id), confidence, mentions)), nil
+}
+
+// ─────────────────────────────────────────────────────────────
+// CreateEpisodeTool
+// ─────────────────────────────────────────────────────────────
+
+type CreateEpisodeTool struct {
+	Tools InternalTools
+}
+
+func (t *CreateEpisodeTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name: "create_episode",
+		Description: "Create an Episode node — a time-bounded container grouping assertions from one consolidation run. " +
+			"Returns the episode ID for linking assertions via IN_EPISODE relationships.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"label":           {"type": "string", "description": "Episode label, e.g. 'Consolidation 2026-03-20'"},
+				"conversation_id": {"type": "string", "description": "Source conversation ID"},
+				"for_user":        {"type": "string", "description": "User display name. Only for consolidation agents."}
+			},
+			"required": ["label"]
+		}`),
+	}
+}
+
+func (t *CreateEpisodeTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	label, _ := params["label"].(string)
+	if label == "" {
+		return nil, fmt.Errorf("label is required")
+	}
+
+	convID, _ := params["conversation_id"].(string)
+
+	userID := resolveEntityUserID(ctx, params)
+	if userID == "" {
+		return nil, fmt.Errorf("could not determine user identity")
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	cypher := fmt.Sprintf(`
+CREATE (ep:Episode {id: randomUUID(), label: %s, started_at: %s,
+        conversation_id: %s, source: "consolidation", txn_created_at: %s})
+WITH ep
+MATCH (u:User) WHERE u.id = %s OR u.name = %s
+MERGE (ep)-[r:INVOLVES]->(u)
+ON CREATE SET r.txn_created_at = %s
+RETURN ep.id AS id`,
+		jsonStr(label),
+		jsonStr(now),
+		jsonStr(convID),
+		jsonStr(now),
+		jsonStr(userID),
+		jsonStr(userID),
+		jsonStr(now),
+	)
+
+	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
+	if isCypherUnsupported(err) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create_episode: %w", err)
+	}
+
+	id := ""
+	if len(result.Data) > 0 {
+		if v, ok := result.Data[0]["id"]; ok {
+			id = fmt.Sprintf("%v", v)
+		}
+	}
+	return json.RawMessage(fmt.Sprintf(`{"status":"ok","id":%s}`, jsonStr(id))), nil
+}
+
+// ─────────────────────────────────────────────────────────────
+// ListAssertionsTool
+// ─────────────────────────────────────────────────────────────
+
+type ListAssertionsTool struct {
+	Tools InternalTools
+}
+
+func (t *ListAssertionsTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name: "list_assertions",
+		Description: "List Assertion nodes linked to a user. " +
+			"Optionally filter by minimum confidence and promotion status. " +
+			"Used by the Archivist to find assertions ready for promotion.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"for_user":        {"type": "string", "description": "User display name."},
+				"min_confidence":  {"type": "number", "description": "Minimum confidence threshold (0.0-1.0)"},
+				"unpromoted_only": {"type": "boolean", "description": "If true, only return assertions not yet promoted"},
+				"limit":           {"type": "integer", "description": "Maximum number of results (default 50)"}
+			}
+		}`),
+	}
+}
+
+func (t *ListAssertionsTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	userID := resolveEntityUserID(ctx, params)
+
+	minConf := 0.0
+	if c, ok := params["min_confidence"].(float64); ok {
+		minConf = c
+	}
+	unpromotedOnly := false
+	if u, ok := params["unpromoted_only"].(bool); ok {
+		unpromotedOnly = u
+	}
+	limit := 50
+	if l, ok := params["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	var whereClauses []string
+	whereClauses = append(whereClauses, fmt.Sprintf("a.confidence >= %f", minConf))
+	if unpromotedOnly {
+		whereClauses = append(whereClauses, "a.promoted = false")
+	}
+	whereStr := strings.Join(whereClauses, " AND ")
+
+	var cypher string
+	if userID != "" {
+		cypher = fmt.Sprintf(`
+MATCH (u:User)-[:ASSERTED]->(a:Assertion)
+WHERE (u.id = %s OR u.name = %s) AND %s
+RETURN a.id AS id, a.label AS label, a.content AS content,
+       a.confidence AS confidence, a.mention_count AS mention_count,
+       a.promoted AS promoted, a.txn_created_at AS created_at,
+       a.valid_from AS valid_from, a.valid_to AS valid_to
+ORDER BY a.confidence DESC, a.mention_count DESC
+LIMIT %d`,
+			jsonStr(userID), jsonStr(userID), whereStr, limit)
+	} else {
+		cypher = fmt.Sprintf(`
+MATCH (a:Assertion)
+WHERE %s
+RETURN a.id AS id, a.label AS label, a.content AS content,
+       a.confidence AS confidence, a.mention_count AS mention_count,
+       a.promoted AS promoted, a.txn_created_at AS created_at,
+       a.valid_from AS valid_from, a.valid_to AS valid_to
+ORDER BY a.confidence DESC, a.mention_count DESC
+LIMIT %d`,
+			whereStr, limit)
+	}
+
+	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
+	if isCypherUnsupported(err) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list_assertions: %w", err)
+	}
+
+	out, _ := json.Marshal(map[string]interface{}{
+		"count":      len(result.Data),
+		"assertions": result.Data,
+	})
+	return json.RawMessage(out), nil
+}
+
+// ─────────────────────────────────────────────────────────────
+// PromoteAssertionTool
+// ─────────────────────────────────────────────────────────────
+
+type PromoteAssertionTool struct {
+	Tools InternalTools
+}
+
+func (t *PromoteAssertionTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name: "promote_assertion",
+		Description: "Promote a high-confidence Assertion into a typed entity node. " +
+			"Creates the entity, links it to the assertion via ABOUT, and sets promoted=true. " +
+			"The assertion is preserved as provenance — never deleted.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"assertion_id": {"type": "string", "description": "ID of the Assertion to promote"},
+				"entity_type":  {"type": "string", "description": "Person | Pet | Place | Organization | Event | Goal | Asset | Topic"},
+				"entity_name":  {"type": "string", "description": "Canonical name for the entity"},
+				"relation":     {"type": "string", "description": "Relationship type from user to entity (e.g. KNOWS, LOCATED_AT, HAS). Defaults to HAS_ENTITY."},
+				"properties":   {"type": "object", "description": "Allowed keys: description, category, notes, url, species, breed, industry, city, country, address, date, deadline, status, make, model, year, email, phone"},
+				"rel_props":    {"type": "object", "description": "Allowed keys: role, valid_from, valid_to, notes"},
+				"for_user":     {"type": "string", "description": "User display name."}
+			},
+			"required": ["assertion_id", "entity_type", "entity_name"]
+		}`),
+	}
+}
+
+func (t *PromoteAssertionTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	assertionID, _ := params["assertion_id"].(string)
+	entityType, _ := params["entity_type"].(string)
+	entityName, _ := params["entity_name"].(string)
+
+	if assertionID == "" || entityType == "" || entityName == "" {
+		return nil, fmt.Errorf("assertion_id, entity_type, and entity_name are required")
+	}
+
+	validTypes := map[string]bool{
+		"Person": true, "Pet": true, "Place": true, "Organization": true,
+		"Event": true, "Goal": true, "Asset": true, "Topic": true,
+	}
+	if !validTypes[entityType] {
+		return nil, fmt.Errorf("entity_type must be one of: Person, Pet, Place, Organization, Event, Goal, Asset, Topic")
+	}
+
+	relation, _ := params["relation"].(string)
+	if relation == "" {
+		relation = "HAS_ENTITY"
+	}
+	if !validRelationTypes[relation] {
+		return nil, fmt.Errorf("unknown relation %q; see allowed list", relation)
+	}
+
+	userID := resolveEntityUserID(ctx, params)
+	if userID == "" {
+		return nil, fmt.Errorf("could not determine user identity")
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Build property map for the entity node.
+	properties := map[string]interface{}{}
+	if p, ok := params["properties"].(map[string]interface{}); ok {
+		for k, v := range p {
+			properties[k] = v
+		}
+	}
+	if err := validatePropertyKeys(properties, validNodePropertyKeys); err != nil {
+		return nil, fmt.Errorf("promote_assertion properties: %w", err)
+	}
+	nodePropCypher := buildCypherPropsLiteral("e", properties)
+
+	// Build relationship property map.
+	relProps := map[string]interface{}{}
+	if rp, ok := params["rel_props"].(map[string]interface{}); ok {
+		for k, v := range rp {
+			relProps[k] = v
+		}
+	}
+	if err := validatePropertyKeys(relProps, validRelPropertyKeys); err != nil {
+		return nil, fmt.Errorf("promote_assertion rel_props: %w", err)
+	}
+	relPropCypher := buildCypherPropsLiteral("r", relProps)
+
+	// Verify assertion exists.
+	checkCypher := fmt.Sprintf(
+		`MATCH (a:Assertion {id: %s}) RETURN a.promoted AS promoted`,
+		jsonStr(assertionID))
+	checkResult, checkErr := t.Tools.Memory.QueryGraph(ctx, checkCypher)
+	if isCypherUnsupported(checkErr) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if checkErr != nil {
+		return nil, fmt.Errorf("promote_assertion: %w", checkErr)
+	}
+	if len(checkResult.Data) == 0 {
+		return nil, fmt.Errorf("promote_assertion: assertion %s not found", assertionID)
+	}
+
+	// Create/merge entity, link user→entity, link assertion→entity, set promoted=true.
+	cypher := fmt.Sprintf(`
+MATCH (a:Assertion {id: %s})
+MERGE (e:%s {name: %s})
+ON CREATE SET e.id = randomUUID(), e.extractedAt = %s, e.source = "assertion",
+              e.txn_created_at = %s%s
+ON MATCH  SET e.txn_updated_at = %s%s
+WITH a, e
+MATCH (u:User) WHERE u.id = %s OR u.name = %s
+MERGE (u)-[r:%s]->(e)
+ON CREATE SET r.valid_from = %s, r.source = "assertion", r.txn_created_at = %s%s
+WITH a, e
+MERGE (a)-[ab:ABOUT]->(e)
+ON CREATE SET ab.txn_created_at = %s
+SET a.promoted = true, a.txn_updated_at = %s
+RETURN e.id AS entity_id, e.name AS entity_name, a.id AS assertion_id`,
+		jsonStr(assertionID),
+		entityType,
+		jsonStr(entityName),
+		jsonStr(now),
+		jsonStr(now),
+		nodePropCypher,
+		jsonStr(now),
+		nodePropCypher,
+		jsonStr(userID),
+		jsonStr(userID),
+		relation,
+		jsonStr(now),
+		jsonStr(now),
+		relPropCypher,
+		jsonStr(now),
+		jsonStr(now),
+	)
+
+	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
+	if isCypherUnsupported(err) {
+		return json.RawMessage(entityNeoUnavailable), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("promote_assertion: %w", err)
+	}
+
+	entityID := ""
+	if len(result.Data) > 0 {
+		if v, ok := result.Data[0]["entity_id"]; ok {
+			entityID = fmt.Sprintf("%v", v)
+		}
+	}
+	return json.RawMessage(fmt.Sprintf(`{"status":"ok","entity_id":%s,"entity_name":%s,"entity_type":%s,"assertion_id":%s}`,
+		jsonStr(entityID), jsonStr(entityName), jsonStr(entityType), jsonStr(assertionID))), nil
+}
+
+// ─────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────
 
-// RegisterEntityTools registers all six entity management tools into the registry.
+// RegisterEntityTools registers all entity and assertion management tools into the registry.
 // Called once at the end of RegisterAllInternalTools.
 func RegisterEntityTools(reg *ToolRegistry, tools InternalTools) {
 	if tools.Memory == nil {
@@ -581,11 +1120,22 @@ func RegisterEntityTools(reg *ToolRegistry, tools InternalTools) {
 	reg.RegisterInternal("get_entity_context", &GetEntityContextTool{Tools: tools})
 	reg.RegisterInternal("list_entities", &ListEntitiesTool{Tools: tools})
 	reg.RegisterInternal("expire_relationship", &ExpireRelationshipTool{Tools: tools})
+	reg.RegisterInternal("upsert_assertion", &UpsertAssertionTool{Tools: tools})
+	reg.RegisterInternal("promote_assertion", &PromoteAssertionTool{Tools: tools})
+	reg.RegisterInternal("list_assertions", &ListAssertionsTool{Tools: tools})
+	reg.RegisterInternal("create_episode", &CreateEpisodeTool{Tools: tools})
 }
 
 // ─────────────────────────────────────────────────────────────
 // Cypher helpers
 // ─────────────────────────────────────────────────────────────
+
+// contentHash returns a truncated SHA-256 hex digest for deduplication.
+func contentHash(s string) string {
+	normalized := strings.ToLower(strings.TrimSpace(s))
+	h := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(h[:16])
+}
 
 // jsonStr returns a Cypher-safe JSON string literal (double-quoted, escaped).
 func jsonStr(s string) string {

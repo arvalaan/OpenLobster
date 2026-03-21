@@ -30,6 +30,11 @@ const MemoryConsolidationPrompt = "Run scheduled memory consolidation: " +
 	"review recent conversations for all users and extract key information " +
 	"to long-term memory. Store important facts, preferences, and context."
 
+// ConfidenceCheckPrompt is issued to the confidence check agent. It reviews
+// low-confidence assertions and proactively messages users to verify them.
+const ConfidenceCheckPrompt = "[CONFIDENCE_CHECK] Review assertions with " +
+	"low confidence and reach out to users to verify uncertain information."
+
 const idleWait = 30 * time.Minute
 
 type schedulerEntry struct {

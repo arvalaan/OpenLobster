@@ -289,5 +289,20 @@ func formatGraphAsText(graph *ports.Graph) string {
 		}
 	}
 
+	// Emit typed entity nodes linked to the user.
+	for _, edge := range graph.Edges {
+		source, ok := nodeMap[edge.Source]
+		if !ok {
+			continue
+		}
+		target, ok := nodeMap[edge.Target]
+		if !ok {
+			continue
+		}
+		if source.Type == "user" && target.Type != "fact" && target.Type != "user" && target.Type != "" {
+			fmt.Fprintf(&b, "- [%s] %s: %s\n", edge.Label, target.Type, target.Value)
+		}
+	}
+
 	return b.String()
 }

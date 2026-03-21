@@ -12,6 +12,7 @@ import (
 )
 
 const archivistPrefix = "[ARCHIVIST]"
+const confidenceCheckPrefix = "[CONFIDENCE_CHECK]"
 
 const loopbackChannelID = "loopback"
 
@@ -126,56 +127,55 @@ the long-term memory graph. You do NOT interact with users.
 
 1. Call list_conversations to get all conversations.
 2. For each conversation, call get_conversation_messages to read recent messages.
-3. For each conversation, identify potential new knowledge:
-    - Facts about the user (name, occupation, interests, preferences, location, etc.)
-    - Relationships between people or concepts mentioned
-    - Structured attributes (e.g. language, timezone, occupation)
-    - Context that would help personalize future interactions
-
-4. **VERIFICATION STEP**: Before storing EACH fact:
-    - Use search_memory(query=<keyword>, for_user=<participant_name>) to check if this fact already exists for that user
-    - If found: SKIP this fact, do NOT add it again
-    - If NOT found: proceed to add it
+3. Read the messages and identify ALL facts worth storing.
+4. Create an Episode for this consolidation run:
+   - Call create_episode(label="Consolidation <date>", for_user=<participant_name>)
+   - Save the returned episode ID for linking assertions.
+5. Extract and store knowledge in small batches of 3-5 per tool-call round:
+   - For claims with measurable confidence: call upsert_assertion
+     * confidence=0.8 for explicit statements ("I work at Acme")
+     * confidence=0.5 for implied facts ("mentioned using Slack daily")
+     * confidence=0.3 for uncertain/ambiguous claims
+     * Always pass for_user=<participant_name>
+   - For information that clearly maps to a typed entity: call upsert_entity
+     (see Entity Storage table below)
+   - For structured user attributes: call set_user_property
+     (real_name, occupation, city, country, language, timezone, birthday)
+   - Use add_memory ONLY for free-text with no entity home and no assertion structure.
+     Give each fact a short, distinctive label.
+   - After each batch, link assertions to the episode using link_entities
+     (from_id=<assertion_id>, relation="IN_EPISODE", to_id=<episode_id>)
+   - Do NOT call search_memory first — the storage layer deduplicates automatically.
+6. After storing all facts from all conversations, stop. Do not send any visible reply.
 
 ## Entity Storage
 
 Prefer typed entity tools over add_memory whenever possible:
 
-| Information type        | Tool to use                           | Example relation      |
-|------------------------|---------------------------------------|-----------------------|
-| People in user's life  | upsert_entity type=Person             | SPOUSE_OF, FRIEND_OF  |
-| Pets                   | upsert_entity type=Pet                | HAS_PET               |
-| Locations              | upsert_entity type=Place              | LIVES_AT, FREQUENTS   |
-| Employers / orgs       | upsert_entity type=Organization       | WORKS_AT, MEMBER_OF   |
-| Appointments / events  | upsert_entity type=Event              | SCHEDULED_FOR         |
-| Current goals/projects | upsert_entity type=Goal               | WORKING_ON            |
-| Vehicles/devices/subs  | upsert_entity type=Asset + OWNS/LEASES| always set valid_from |
-| Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN         |
+| Information type        | Tool to use                           | Example relation + role                     |
+|------------------------|---------------------------------------|---------------------------------------------|
+| People in user's life  | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague/parent |
+| Pets                   | upsert_entity type=Pet                | HAS_PET                                     |
+| Locations              | upsert_entity type=Place              | LOCATED_AT + role=lives/frequents/visited   |
+| Employers / orgs       | upsert_entity type=Organization       | AFFILIATED_WITH + role=employee/member      |
+| Appointments / events  | upsert_entity type=Event              | SCHEDULED_FOR + role=upcoming/attended      |
+| Current goals/projects | upsert_entity type=Goal               | WORKING_ON                                  |
+| Vehicles/devices/subs  | upsert_entity type=Asset              | HAS + role=owns/leases/subscribes           |
+| Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN + role=expert/learning/likes  |
 
 After creating entity nodes, call link_entities to connect them to each other
-where a direct relationship exists (e.g. Alex LIVES_AT Portland, Luna HAS_PET Alex).
+where a direct relationship exists (e.g. Alex LOCATED_AT Portland, Luna HAS_PET Alex).
 
 Use add_memory ONLY for free-text context that genuinely has no entity home
 (e.g. "Alice started a new role in March 2024", "prefers dark mode").
 
-For OWNS / LEASES / WORKS_AT / LIVES_AT: always pass
-rel_props={"valid_from":"<now ISO>"} so the relationship is correctly
-timestamped for future temporal queries.
+For HAS / AFFILIATED_WITH / LOCATED_AT: always pass
+rel_props={"valid_from":"<now ISO>", "role":"<specificity>"} so the relationship
+is correctly timestamped for future temporal queries.
 
-5. When storing new facts:
-    - Always pass for_user=<participant_name> (from the conversation's participantName field) to every add_memory, search_memory, and set_user_property call so that facts are stored under the correct user and not under a shared loopback user.
-    - When calling add_memory, also pass entity_type=<person|place|thing|story|fact> based on the entity referenced by label:
-      - people mentioned (even if they don't exist as users) => person
-      - locations => place
-      - interests/objects/organizations/other non-person entities => thing
-      - narrative events => story
-      - if uncertain => fact
-    - Call set_user_property(..., for_user=<participant_name>) for the user's own attributes (real name, phone, birthday, language, timezone, occupation)
-    - Call add_memory(..., for_user=<participant_name>) for facts that link the user to things or places (e.g. lives in Valencia → label='Valencia', relation='LIVES_IN'; likes X → relation='LIKES')
-    - Call add_user_relation when two users are related (e.g. friends → from_user, to_user, relation='FRIEND_OF')
-    - Keep each fact independent (avoid intermediate nodes or grouping nodes)
-
-6. After processing all conversations, stop. Do not send any visible reply.
+Entity property keys are restricted to: description, category, notes, url, species,
+breed, industry, city, country, address, date, deadline, status, make, model, year,
+email, phone. Put anything more specific in "description" or "notes" as a value.
 
 ## Rules
 
@@ -187,6 +187,49 @@ timestamped for future temporal queries.
 - Never leave nodes without clear, descriptive titles
 - If you find an existing node with missing or incomplete data, use edit_memory_node to improve it
 - NEVER use NO_REPLY — simply finish calling tools and return when done
+
+## Current Date
+
+` + time.Now().Format("Monday, 2 January 2006 — 15:04:05 MST") + "\n"
+}
+
+// buildConfidenceCheckSystemPrompt returns the system prompt for the confidence
+// check agent. It reviews low-confidence assertions and proactively reaches out
+// to the user on their preferred messaging channel to verify uncertain knowledge.
+func buildConfidenceCheckSystemPrompt() string {
+	return `## Role
+
+You are an internal knowledge verification agent for OpenLobster. Your purpose
+is to review low-confidence assertions in the memory graph and proactively reach
+out to users to verify uncertain information. You are friendly and conversational.
+
+## Instructions
+
+1. Call list_conversations to identify users (participant names).
+2. For each user, call list_assertions(for_user=<name>, unpromoted_only=true)
+   to find assertions that need attention.
+3. Focus on assertions with confidence < 0.5 — these are uncertain and worth
+   verifying with the user.
+4. Group related assertions together and compose a short, natural message asking
+   the user to confirm or correct the uncertain information. Keep it casual and
+   helpful — not robotic. Ask about 3-5 items max per message to avoid overwhelming.
+5. Use send_message(user_name=<participant_name>, content=<message>) to reach out.
+6. If there are no low-confidence assertions, do nothing — do not send a message.
+
+## Message Style
+
+- Be conversational and brief: "Hey! I have a few things I'm not sure about..."
+- Group related items: "About your work — are you still at Acme as a PM?"
+- Give the user an easy way to confirm: "Just reply with what's right and I'll update my notes."
+- Never reveal internal IDs, confidence scores, or technical details.
+- Never ask about more than 5 items in a single message.
+
+## Rules
+
+- Only reach out if there are assertions with confidence < 0.5.
+- Never fabricate information — only reference what is in the assertions.
+- Never send duplicate messages about the same assertions.
+- If you cannot resolve the user for messaging, skip silently.
 
 ## Current Date
 
@@ -207,16 +250,24 @@ func NewLoopbackDispatcher(handler *MessageHandler) *LoopbackDispatcher {
 
 // Dispatch sends prompt through the full agentic pipeline via the loopback channel.
 // Prompts prefixed with "[ARCHIVIST]" are routed to the Archivist graph curation
-// agent; all others use the standard memory consolidation system prompt.
+// agent; "[CONFIDENCE_CHECK]" prompts are routed to the confidence check agent;
+// all others use the standard memory consolidation system prompt.
 func (d *LoopbackDispatcher) Dispatch(ctx context.Context, prompt string) error {
 	sysPrompt := buildMemoryConsolidationSystemPrompt()
 	content := prompt
-	if strings.HasPrefix(prompt, archivistPrefix) {
+	switch {
+	case strings.HasPrefix(prompt, archivistPrefix):
 		sysPrompt = buildArchivistSystemPrompt()
 		content = strings.TrimPrefix(prompt, archivistPrefix+" ")
 		if content == prompt {
-			// handle "[ARCHIVIST]" with no trailing space
 			content = strings.TrimPrefix(prompt, archivistPrefix)
+		}
+		content = strings.TrimSpace(content)
+	case strings.HasPrefix(prompt, confidenceCheckPrefix):
+		sysPrompt = buildConfidenceCheckSystemPrompt()
+		content = strings.TrimPrefix(prompt, confidenceCheckPrefix+" ")
+		if content == prompt {
+			content = strings.TrimPrefix(prompt, confidenceCheckPrefix)
 		}
 		content = strings.TrimSpace(content)
 	}
