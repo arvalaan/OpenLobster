@@ -469,6 +469,8 @@ var thoughtBlockRe = regexp.MustCompile(`(?s)<thought>\s*(.*?)\s*</thought>`)
 
 // parseToolBlocks extracts tool calls from <tool> JSON blocks embedded in content.
 // Fallback for models with custom templates that don't use the standard tool_calls field.
+// Generates deterministic IDs so tool results can be correlated (Ollama Cloud
+// requires matching tool_call_id in tool results).
 func parseToolBlocks(content string) []ports.ToolCall {
 	matches := toolBlockRe.FindAllStringSubmatch(content, -1)
 	var calls []ports.ToolCall
