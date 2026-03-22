@@ -322,7 +322,7 @@ func TestListConversationsTool_Execute_NilService(t *testing.T) {
 
 func TestGetConversationMessagesTool_Execute_Success(t *testing.T) {
 	mockConv := new(MockConversationService)
-	mockConv.On("GetConversationMessages", mock.Anything, "conv1", 100).Return([]ConversationMessage{{Role: "user", Content: "hi"}}, nil)
+	mockConv.On("GetConversationMessages", mock.Anything, "conv1", 50).Return([]ConversationMessage{{Role: "user", Content: "hi"}}, nil)
 	tool := &GetConversationMessagesTool{Tools: InternalTools{Conversations: mockConv}}
 	result, err := tool.Execute(context.Background(), map[string]interface{}{"conversation_id": "conv1"})
 	assert.NoError(t, err)
