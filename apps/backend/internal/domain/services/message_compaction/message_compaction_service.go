@@ -22,12 +22,12 @@ type Service struct {
 	ThresholdRatio float64
 }
 
-// NewService creates a MessageCompactionService with 85% threshold.
+// NewService creates a MessageCompactionService with 70% threshold.
 func NewService(repo ports.MessageRepositoryPort, aiProvider ports.AIProviderPort) *Service {
 	return &Service{
 		repo:           repo,
 		aiProvider:     aiProvider,
-		ThresholdRatio: 0.85,
+		ThresholdRatio: 0.70,
 	}
 }
 

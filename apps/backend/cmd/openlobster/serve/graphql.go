@@ -160,8 +160,14 @@ func (a *App) initGraphQL() {
 			if providerTouched {
 				newProvider := aifactory.BuildFromConfig(reloaded)
 				a.MsgHandler.SetAIProvider(newProvider)
-				a.CompactionSvc.SetAIProvider(newProvider)
 				a.Deps.AIProvider = newProvider
+				// Rebuild background provider (compaction, loopback tasks).
+				bgProvider := aifactory.BuildBackgroundFromConfig(reloaded)
+				if bgProvider == nil {
+					bgProvider = newProvider
+				}
+				a.BackgroundAIProvider = bgProvider
+				a.CompactionSvc.SetAIProvider(bgProvider)
 				log.Printf("config: soft reboot — AI provider reloaded")
 			}
 			if a.SchedulerUpdateMemoryInterval != nil && reloaded.Scheduler.MemoryInterval != cfg.Scheduler.MemoryInterval {

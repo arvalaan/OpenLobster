@@ -106,6 +106,26 @@ func BuildFromConfig(cfg *config.Config) ports.AIProviderPort {
 	return nil
 }
 
+// BuildBackgroundFromConfig creates a secondary AIProviderPort for background
+// tasks (consolidation, compaction, archivist) using a cheaper model when
+// configured. Returns nil when no background model is set, signalling the
+// caller to fall back to the primary provider.
+func BuildBackgroundFromConfig(cfg *config.Config) ports.AIProviderPort {
+	maxTokens := cfg.Agent.MaxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxOutputTokens
+	}
+	switch ProviderName(cfg) {
+	case "openrouter":
+		model := cfg.Providers.OpenRouter.BackgroundModel
+		if model == "" {
+			return nil
+		}
+		return aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, maxTokens)
+	}
+	return nil
+}
+
 // ProviderName returns the active AI provider name. When cfg.Agent.Provider is
 // explicitly set it is honoured; otherwise the first provider with valid
 // credentials is returned.

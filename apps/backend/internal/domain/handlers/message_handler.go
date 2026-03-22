@@ -205,6 +205,11 @@ func (r *agenticRunner) runAgenticLoop(ctx context.Context, messages []ports.Cha
 		}
 		for _, tc := range resp.ToolCalls {
 			msg := r.dispatchToolCall(ctx, tc)
+			resultPreview := msg.Content
+			if len(resultPreview) > 200 {
+				resultPreview = resultPreview[:200] + "…"
+			}
+			log.Printf("handlers: tool round=%d call=%s result=%s", round, tc.Function.Name, resultPreview)
 			req.Messages = append(req.Messages, msg)
 			if saveIntermediate != nil {
 				saveIntermediate(msg)
@@ -254,6 +259,10 @@ type HandleMessageInput struct {
 	// Used by internal dispatchers (e.g. memory consolidation) that need a
 	// dedicated system prompt instead of the user-facing one.
 	SystemPrompt string
+	// AIProviderOverride, when set, replaces the handler's default AI provider
+	// for this request only. Used by loopback tasks to route background work
+	// (consolidation, compaction) through a cheaper model.
+	AIProviderOverride ports.AIProviderPort
 }
 
 type userChannelChecker interface {
@@ -693,8 +702,12 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 	}
 	messages = injectSpeakerTurn(messages)
 
-	if h.compactionSvc != nil && h.messageRepo != nil && h.runner.aiProvider != nil {
-		maxTokens := h.runner.aiProvider.GetMaxTokens()
+	activeProvider := h.runner.aiProvider
+	if input.AIProviderOverride != nil {
+		activeProvider = input.AIProviderOverride
+	}
+	if h.compactionSvc != nil && h.messageRepo != nil && activeProvider != nil {
+		maxTokens := activeProvider.GetMaxTokens()
 		if h.compactionSvc.ShouldCompact(messages, maxTokens) {
 			_, _ = h.compactionSvc.Compact(ctx, conversationID)
 			messages, _ = h.buildMessages(ctx, conversationID, systemPrompt, &latestMsg)
@@ -822,7 +835,11 @@ func (h *MessageHandler) Handle(ctx context.Context, input HandleMessageInput) e
 		ctxWithUser = context.WithValue(ctxWithUser, mcp.ContextKeyChannelType, input.ChannelType)
 	}
 
-	response, err := h.runner.runAgenticLoop(ctxWithUser, messages, tools, saveFn)
+	runner := h.runner
+	if input.AIProviderOverride != nil {
+		runner.aiProvider = input.AIProviderOverride
+	}
+	response, err := runner.runAgenticLoop(ctxWithUser, messages, tools, saveFn)
 	if err != nil {
 		return err
 	}

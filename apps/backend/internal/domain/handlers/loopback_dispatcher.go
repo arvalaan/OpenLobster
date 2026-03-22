@@ -9,6 +9,7 @@ import (
 	"time"
 
 	appcontext "github.com/neirth/openlobster/internal/domain/context"
+	"github.com/neirth/openlobster/internal/domain/ports"
 )
 
 const archivistPrefix = "[ARCHIVIST]"
@@ -131,21 +132,26 @@ the long-term memory graph. You do NOT interact with users.
 4. Create an Episode for this consolidation run:
    - Call create_episode(label="Consolidation <date>", for_user=<participant_name>)
    - Save the returned episode ID for linking assertions.
-5. Extract and store knowledge in small batches of 3-5 per tool-call round:
-   - For claims with measurable confidence: call upsert_assertion
+5. Extract and store knowledge in small batches of 3-5 per tool-call round.
+   IMPORTANT: For EVERY fact you extract, you MUST create an assertion AND (if applicable)
+   an entity. These are complementary, not alternatives:
+   a) ALWAYS call upsert_assertion for each fact — this is the primary extraction path:
      * confidence=0.8 for explicit statements ("I work at Acme")
      * confidence=0.5 for implied facts ("mentioned using Slack daily")
      * confidence=0.3 for uncertain/ambiguous claims
      * Always pass for_user=<participant_name>
-   - For information that clearly maps to a typed entity: call upsert_entity
-     (see Entity Storage table below)
-   - For structured user attributes: call set_user_property
+     * Always pass about_entity_id if the fact relates to an existing entity
+   b) ADDITIONALLY, if the fact maps to a typed entity: call upsert_entity
+     (see Entity Storage table below). Do this IN ADDITION to the assertion.
+   c) For structured user attributes: call set_user_property
      (real_name, occupation, city, country, language, timezone, birthday)
-   - Use add_memory ONLY for free-text with no entity home and no assertion structure.
+   d) Use add_memory ONLY for free-text with no entity home and no assertion structure.
      Give each fact a short, distinctive label.
-   - After each batch, link assertions to the episode using link_entities
+   e) After each batch, link assertions to the episode using link_entities
      (from_id=<assertion_id>, relation="IN_EPISODE", to_id=<episode_id>)
    - Do NOT call search_memory first — the storage layer deduplicates automatically.
+   - Do NOT skip upsert_assertion — without assertions, the confidence check agent
+     cannot proactively verify uncertain knowledge with the user.
 6. After storing all facts from all conversations, stop. Do not send any visible reply.
 
 ## Entity Storage
@@ -206,14 +212,17 @@ out to users to verify uncertain information. You are friendly and conversationa
 ## Instructions
 
 1. Call list_conversations to identify users (participant names).
-2. For each user, call list_assertions(for_user=<name>, unpromoted_only=true)
-   to find assertions that need attention.
-3. Focus on assertions with confidence < 0.5 — these are uncertain and worth
-   verifying with the user.
+2. For each user, call list_assertions to find ONLY uncertain assertions:
+   list_assertions(for_user=<name>, unpromoted_only=true, max_confidence=0.5)
+   This returns only assertions the system is unsure about.
+3. If the list is empty, skip this user — all knowledge is confident.
 4. Group related assertions together and compose a short, natural message asking
    the user to confirm or correct the uncertain information. Keep it casual and
    helpful — not robotic. Ask about 3-5 items max per message to avoid overwhelming.
-5. Use send_message(user_name=<participant_name>, content=<message>) to reach out.
+5. Deliver the message using send_message. You MUST use EXACTLY this form:
+   {"user_name": "<participant_name>", "content": "<your message>"}
+   Do NOT pass channel, channel_type, or channel_id — those parameters will cause
+   routing failures. The user_name parameter handles all routing automatically.
 6. If there are no low-confidence assertions, do nothing — do not send a message.
 
 ## Message Style
@@ -239,13 +248,16 @@ out to users to verify uncertain information. You are friendly and conversationa
 // LoopbackDispatcher implements ports.TaskDispatcherPort and bridges the domain
 // Scheduler with the MessageHandler.
 type LoopbackDispatcher struct {
-	handler *MessageHandler
+	handler            *MessageHandler
+	backgroundProvider ports.AIProviderPort
 }
 
 // NewLoopbackDispatcher constructs a LoopbackDispatcher that routes task
-// execution through handler.
-func NewLoopbackDispatcher(handler *MessageHandler) *LoopbackDispatcher {
-	return &LoopbackDispatcher{handler: handler}
+// execution through handler. When backgroundProvider is non-nil, loopback
+// requests use it instead of the handler's default AI provider, enabling
+// cheaper models for background tasks.
+func NewLoopbackDispatcher(handler *MessageHandler, backgroundProvider ports.AIProviderPort) *LoopbackDispatcher {
+	return &LoopbackDispatcher{handler: handler, backgroundProvider: backgroundProvider}
 }
 
 // Dispatch sends prompt through the full agentic pipeline via the loopback channel.
@@ -272,9 +284,10 @@ func (d *LoopbackDispatcher) Dispatch(ctx context.Context, prompt string) error 
 		content = strings.TrimSpace(content)
 	}
 	return d.handler.Handle(ctx, HandleMessageInput{
-		ChannelID:    loopbackChannelID,
-		Content:      content,
-		ChannelType:  loopbackChannelID,
-		SystemPrompt: sysPrompt,
+		ChannelID:          loopbackChannelID,
+		Content:            content,
+		ChannelType:        loopbackChannelID,
+		SystemPrompt:       sysPrompt,
+		AIProviderOverride: d.backgroundProvider,
 	})
 }

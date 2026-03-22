@@ -35,6 +35,14 @@ func (a *App) initServices() {
 		log.Printf("ai provider: %s", aifactory.ProviderName(cfg))
 	}
 
+	// Background AI provider (cheaper model for consolidation, compaction, etc.)
+	a.BackgroundAIProvider = aifactory.BuildBackgroundFromConfig(cfg)
+	if a.BackgroundAIProvider == nil {
+		a.BackgroundAIProvider = a.AIProvider
+	} else {
+		log.Printf("ai provider (background): %s", cfg.Providers.OpenRouter.BackgroundModel)
+	}
+
 	// Memory backend
 	switch cfg.Memory.Backend {
 	case "neo4j":
@@ -98,7 +106,7 @@ func (a *App) initServices() {
 		cfg.SubAgents.MaxConcurrent,
 		cfg.SubAgents.DefaultTimeout,
 	)
-	a.CompactionSvc = domainservices.NewMessageCompactionService(a.MessageRepo, a.AIProvider)
+	a.CompactionSvc = domainservices.NewMessageCompactionService(a.MessageRepo, a.BackgroundAIProvider)
 
 	// Register all internal tools
 	mcp.RegisterAllInternalTools(a.ToolRegistry, mcp.InternalTools{

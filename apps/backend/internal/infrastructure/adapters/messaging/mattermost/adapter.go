@@ -91,13 +91,37 @@ const maxPostSize = 4000
 // SendMessage posts a message to the channel specified in msg.ChannelID.
 // If the content exceeds maxPostSize it is split at natural language boundaries
 // and sent as sequential posts. All chunks share the same thread root.
+//
+// When the initial CreatePost returns a 403 (permission error), the adapter
+// assumes msg.ChannelID is a Mattermost user ID rather than a channel ID
+// (this happens for proactive outbound messages routed via user_channels).
+// It creates a DM channel on-the-fly and retries.
 func (a *Adapter) SendMessage(ctx context.Context, msg *models.Message) error {
+	channelID := msg.ChannelID
 	rootID := ""
-	if v, ok := a.threadRoots.Load(msg.ChannelID); ok {
+	if v, ok := a.threadRoots.Load(channelID); ok {
 		rootID, _ = v.(string)
 	}
-	for _, chunk := range splitMessage(msg.Content, maxPostSize) {
-		if _, err := a.client.CreatePost(ctx, msg.ChannelID, chunk, rootID, nil); err != nil {
+
+	chunks := splitMessage(msg.Content, maxPostSize)
+	_, err := a.client.CreatePost(ctx, channelID, chunks[0], rootID, nil)
+	if err != nil && strings.Contains(err.Error(), "403") && a.botUserID != "" {
+		// channelID is likely a user ID — open a DM channel and retry.
+		dm, dmErr := a.client.CreateDirectChannel(ctx, a.botUserID, channelID)
+		if dmErr != nil {
+			return fmt.Errorf("mattermost send message: %w (DM fallback: %v)", err, dmErr)
+		}
+		channelID = dm.ID
+		rootID = "" // new channel, no thread root
+		if _, retryErr := a.client.CreatePost(ctx, channelID, chunks[0], rootID, nil); retryErr != nil {
+			return fmt.Errorf("mattermost send message (DM): %w", retryErr)
+		}
+	} else if err != nil {
+		return fmt.Errorf("mattermost send message: %w", err)
+	}
+
+	for _, chunk := range chunks[1:] {
+		if _, err := a.client.CreatePost(ctx, channelID, chunk, rootID, nil); err != nil {
 			return fmt.Errorf("mattermost send message: %w", err)
 		}
 	}

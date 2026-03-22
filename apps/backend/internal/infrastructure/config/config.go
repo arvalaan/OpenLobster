@@ -283,11 +283,12 @@ type ProvidersConfig struct {
 }
 
 type OpenRouterConfig struct {
-	APIKey        string `mapstructure:"api_key"`
-	DefaultModel  string `mapstructure:"default_model"`
+	APIKey          string `mapstructure:"api_key"`
+	DefaultModel    string `mapstructure:"default_model"`
+	BackgroundModel string `mapstructure:"background_model"`
 	// ContextWindow overrides the context window used for message chunking.
 	// Required because OpenRouter does not expose this via API.
-	ContextWindow int    `mapstructure:"context_window"`
+	ContextWindow int `mapstructure:"context_window"`
 }
 
 type OllamaConfig struct {
@@ -513,6 +514,7 @@ func setDefaults() {
 	viper.SetDefault("providers.ollama.api_key", "")
 	viper.SetDefault("providers.openrouter.api_key", "")
 	viper.SetDefault("providers.openrouter.default_model", "")
+	viper.SetDefault("providers.openrouter.background_model", "")
 	viper.SetDefault("providers.opencode.api_key", "")
 	viper.SetDefault("providers.opencode.model", "")
 	viper.SetDefault("providers.openai.api_key", "")

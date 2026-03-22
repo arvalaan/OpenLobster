@@ -877,7 +877,8 @@ func (t *ListAssertionsTool) Definition() ToolDefinition {
 			"type": "object",
 			"properties": {
 				"for_user":        {"type": "string", "description": "User display name."},
-				"min_confidence":  {"type": "number", "description": "Minimum confidence threshold (0.0-1.0)"},
+				"min_confidence":  {"type": "number", "description": "Minimum confidence threshold (0.0-1.0). Default 0.0."},
+				"max_confidence":  {"type": "number", "description": "Maximum confidence threshold (0.0-1.0). Only return assertions with confidence <= this value. Useful for finding uncertain assertions."},
 				"unpromoted_only": {"type": "boolean", "description": "If true, only return assertions not yet promoted"},
 				"limit":           {"type": "integer", "description": "Maximum number of results (default 50)"}
 			}
@@ -891,6 +892,10 @@ func (t *ListAssertionsTool) Execute(ctx context.Context, params map[string]inte
 	minConf := 0.0
 	if c, ok := params["min_confidence"].(float64); ok {
 		minConf = c
+	}
+	maxConf := 1.0
+	if c, ok := params["max_confidence"].(float64); ok {
+		maxConf = c
 	}
 	unpromotedOnly := false
 	if u, ok := params["unpromoted_only"].(bool); ok {
@@ -906,6 +911,7 @@ func (t *ListAssertionsTool) Execute(ctx context.Context, params map[string]inte
 
 	var whereClauses []string
 	whereClauses = append(whereClauses, fmt.Sprintf("a.confidence >= %f", minConf))
+	whereClauses = append(whereClauses, fmt.Sprintf("a.confidence <= %f", maxConf))
 	if unpromotedOnly {
 		whereClauses = append(whereClauses, "a.promoted = false")
 	}

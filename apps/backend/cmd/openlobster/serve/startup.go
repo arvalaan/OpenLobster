@@ -12,33 +12,35 @@ import (
 
 // seedSystemTasks ensures that built-in recurring tasks exist in the database
 // so they are visible and manageable from the UI like any other cron task.
+// If a system task already exists but its schedule differs from the configured
+// value, the schedule is updated in-place.
 //
 // Currently seeded tasks:
 //   - Memory consolidation (every N hours, controlled by scheduler.memory_interval)
-//
-// Each task is only created once; subsequent restarts are no-ops.
+//   - Confidence check (daily at 10:00)
 func (a *App) seedSystemTasks(ctx context.Context) {
 	if a.TaskRepo == nil {
 		return
 	}
 
 	if a.Cfg.Scheduler.MemoryEnabled {
-		a.seedTaskIfAbsent(ctx,
+		a.seedOrUpdateSystemTask(ctx,
 			domainservices.MemoryConsolidationPrompt,
 			durationToHourlyCron(a.Cfg.Scheduler.MemoryInterval),
 		)
 		// Confidence check: daily at 10:00 — reviews low-confidence assertions
 		// and proactively messages users to verify uncertain information.
-		a.seedTaskIfAbsent(ctx,
+		a.seedOrUpdateSystemTask(ctx,
 			domainservices.ConfidenceCheckPrompt,
 			"0 10 * * *",
 		)
 	}
 }
 
-// seedTaskIfAbsent creates a cron task with the given prompt and schedule only
-// if no task with that exact prompt already exists in the database.
-func (a *App) seedTaskIfAbsent(ctx context.Context, prompt, schedule string) {
+// seedOrUpdateSystemTask creates a cron task with the given prompt and schedule
+// if no task with that exact prompt exists. If a matching task already exists
+// but has a different schedule, the schedule is updated to match the config.
+func (a *App) seedOrUpdateSystemTask(ctx context.Context, prompt, schedule string) {
 	tasks, err := a.TaskRepo.ListAll(ctx)
 	if err != nil {
 		log.Printf("scheduler: failed to list tasks for seeding: %v", err)
@@ -46,7 +48,18 @@ func (a *App) seedTaskIfAbsent(ctx context.Context, prompt, schedule string) {
 	}
 	for _, t := range tasks {
 		if t.Prompt == prompt {
-			return // already seeded
+			if t.Schedule != schedule {
+				t.Schedule = schedule
+				if err := a.TaskRepo.Update(ctx, &t); err != nil {
+					log.Printf("scheduler: failed to update task schedule: %v", err)
+					return
+				}
+				if a.SchedulerNotify != nil {
+					a.SchedulerNotify()
+				}
+				log.Printf("scheduler: updated system task schedule to %s: %s…", schedule, prompt[:min(60, len(prompt))])
+			}
+			return
 		}
 	}
 	task := models.NewTask(prompt, schedule)

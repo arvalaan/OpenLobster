@@ -60,6 +60,9 @@ are known conflict zones. For each one the correct resolution is described.
 - **Resolution**: keep `defaultMaxOutputTokens = 4096`. The actual value is now
   config-driven (`agent.max_output_tokens`), so even if this constant drifts the
   deployed config overrides it. But keep the constant at 4096 as the default.
+  Also keep `BuildBackgroundFromConfig` function — it creates a secondary AI
+  provider for background tasks using a cheaper model. If upstream changes
+  `BuildFromConfig` signature, apply same changes to `BuildBackgroundFromConfig`.
 
 ### 2. `apps/backend/internal/domain/services/scheduler/scheduler_service.go`
 - **Risk**: upstream may re-add the hidden `memTickerC` memory consolidation ticker.
@@ -75,11 +78,14 @@ are known conflict zones. For each one the correct resolution is described.
 - **Resolution**: keep `domainservices.NewScheduler(dispatcher, a.TaskRepo)` (no
   mem-interval params) and keep `a.seedSystemTasks(ctx)` before `go sched.Run(ctx)`.
   Also preserve the Mattermost case in the channel-listener switch.
+  Keep `a.BackgroundAIProvider` as the second argument to `NewLoopbackDispatcher`.
 
 ### 4. `apps/backend/cmd/openlobster/serve/graphql.go`
 - **Risk**: upstream may reset `buildInitialChannels()` to only Discord/Telegram.
 - **Resolution**: keep our version that also registers Slack, WhatsApp, Twilio, and
   Mattermost profiles so they appear in the UI.
+  In the soft-reboot callback, keep the background provider rebuild block
+  (`BuildBackgroundFromConfig` + `CompactionSvc.SetAIProvider(bgProvider)`).
 
 ### 5. `apps/backend/internal/domain/handlers/loopback_dispatcher.go`
 - **Risk**: upstream may rewrite `buildMemoryConsolidationSystemPrompt()`.
@@ -89,6 +95,9 @@ are known conflict zones. For each one the correct resolution is described.
   `buildArchivistSystemPrompt()` (in `archivist_dispatcher.go`).
   Adopt upstream improvements to the consolidation instruction wording but do
   not drop the entity storage section or the assertion-aware extraction steps.
+  Keep `backgroundProvider ports.AIProviderPort` field in `LoopbackDispatcher`
+  struct. Keep the second parameter in `NewLoopbackDispatcher(handler, bgProvider)`.
+  Keep `AIProviderOverride: d.backgroundProvider` in `Dispatch()`.
 
 ### 6. `apps/backend/internal/domain/handlers/message_handler.go`
 - **Risk**: upstream may reset `maxToolRounds` to 5, or remove the `!isLoopback`
@@ -102,6 +111,9 @@ are known conflict zones. For each one the correct resolution is described.
     results without it causes Anthropic/OpenRouter to reject the conversation history
     replay with `tool_use_id: String should match pattern '^[a-zA-Z0-9_-]+'`.
     Only publish the event bus event so the UI shows live tool activity.
+  - Keep `AIProviderOverride ports.AIProviderPort` in `HandleMessageInput`.
+  - Keep the `activeProvider`/runner-copy blocks that use the override for
+    compaction and `runAgenticLoop`.
 
 ### 7. `schema/config.graphql` and `apps/backend/internal/application/graphql/generated/`
 - **Risk**: upstream may not have the Mattermost fields in `ChannelSecretsConfig`
@@ -136,7 +148,10 @@ are known conflict zones. For each one the correct resolution is described.
 ### 10. `apps/backend/internal/domain/handlers/archivist_dispatcher.go`
 - **Risk**: upstream may rewrite or remove the Archivist system prompt.
 - **Resolution**: keep our Node Type Reference table (includes Assertion and Episode
-  rows), Step 1.5 (assertion review/promotion), and the four assertion quality rules.
+  rows), the assertion promotion step, and the quality rules. The Archivist no longer
+  does Memory/Fact→entity promotion (consolidation handles that at extraction time).
+  Its remaining duties: promote mature assertions, merge duplicates, expire stale
+  relationships, create missing entity-to-entity links.
   Adopt upstream wording improvements but do not remove assertion-related sections.
 
 ### 11. `apps/backend/internal/domain/context/context.go`
@@ -146,14 +161,35 @@ are known conflict zones. For each one the correct resolution is described.
   the agent during conversations.
 
 ### 12. `apps/backend/cmd/openlobster/serve/startup.go`
-- **Risk**: upstream may modify `seedSystemTasks()`.
-- **Resolution**: keep the confidence check task seed (`ConfidenceCheckPrompt` at
-  `"0 10 * * *"`). It is gated behind `MemoryEnabled` alongside the consolidation
-  task.
+- **Risk**: upstream may modify `seedSystemTasks()` or `seedTaskIfAbsent()`.
+- **Resolution**: keep `seedOrUpdateSystemTask` (replaces `seedTaskIfAbsent`). It's
+  a superset — creates if absent, updates schedule if changed. This ensures DB
+  tasks track config changes (e.g. memory_interval env var) on restart.
+  Keep the confidence check task seed (`ConfidenceCheckPrompt` at `"0 10 * * *"`).
+  Both are gated behind `MemoryEnabled`.
 
 ### 13. `apps/backend/internal/domain/services/services.go`
 - **Risk**: upstream may not have our re-exported constants.
 - **Resolution**: keep `ConfidenceCheckPrompt = svcscheduler.ConfidenceCheckPrompt`.
+
+### 14. `apps/backend/internal/infrastructure/config/config.go`
+- **Risk**: upstream may change `OpenRouterConfig` struct.
+- **Resolution**: keep `BackgroundModel string` field in `OpenRouterConfig`.
+  If upstream adds new fields, merge them alongside ours.
+
+### 15. `apps/backend/cmd/openlobster/serve/app.go`
+- **Risk**: upstream may reorganize `App` struct fields.
+- **Resolution**: keep `BackgroundAIProvider ports.AIProviderPort` field.
+
+### 16. `apps/backend/cmd/openlobster/serve/services.go`
+- **Risk**: upstream may change how `CompactionSvc` or `AIProvider` are wired.
+- **Resolution**: keep the `BuildBackgroundFromConfig` call, the fallback logic,
+  and `BackgroundAIProvider` being passed to `CompactionSvc`.
+
+### 17. `apps/backend/internal/domain/services/message_compaction/message_compaction_service.go`
+- **Risk**: upstream may change `ThresholdRatio` default.
+- **Resolution**: keep `ThresholdRatio: 0.70` (was `0.85` upstream). Lower threshold
+  triggers compaction earlier, reducing per-request context size.
 
 ### Rebase procedure
 ```bash

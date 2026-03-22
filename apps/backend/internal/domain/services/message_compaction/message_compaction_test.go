@@ -15,7 +15,7 @@ import (
 func TestNewService(t *testing.T) {
 	svc := NewService(nil, nil)
 	assert.NotNil(t, svc)
-	assert.Equal(t, 0.85, svc.ThresholdRatio)
+	assert.Equal(t, 0.70, svc.ThresholdRatio)
 }
 
 func TestShouldCompact_UnderThreshold(t *testing.T) {

@@ -273,7 +273,7 @@ func formatGraphAsText(graph *ports.Graph) string {
 		}
 	}
 
-	// Emit free-text facts linked to the user node.
+	// Emit knowledge nodes linked to the user.
 	for _, edge := range graph.Edges {
 		source, ok := nodeMap[edge.Source]
 		if !ok {
@@ -283,23 +283,17 @@ func formatGraphAsText(graph *ports.Graph) string {
 		if !ok {
 			continue
 		}
-
-		if source.Type == "user" && target.Type != "user" {
+		if source.Type != "user" {
+			continue
+		}
+		switch {
+		case target.Type == "user":
+			// skip user-to-user edges
+		case target.Type == "fact" || target.Type == "":
+			// Free-text facts: show node ID for edit/delete operations
 			fmt.Fprintf(&b, "- [node_id:%s] %s\n", target.ID, target.Value)
-		}
-	}
-
-	// Emit typed entity nodes linked to the user.
-	for _, edge := range graph.Edges {
-		source, ok := nodeMap[edge.Source]
-		if !ok {
-			continue
-		}
-		target, ok := nodeMap[edge.Target]
-		if !ok {
-			continue
-		}
-		if source.Type == "user" && target.Type != "fact" && target.Type != "user" && target.Type != "" {
+		default:
+			// Typed entities: show relation and type for richer context
 			fmt.Fprintf(&b, "- [%s] %s: %s\n", edge.Label, target.Type, target.Value)
 		}
 	}

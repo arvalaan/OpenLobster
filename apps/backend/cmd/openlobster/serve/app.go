@@ -60,8 +60,9 @@ type App struct {
 	UserChannelRepo ports.UserChannelRepositoryPort
 
 	// Infrastructure
-	AIProvider    ports.AIProviderPort
-	MemoryAdapter ports.MemoryPort
+	AIProvider           ports.AIProviderPort
+	BackgroundAIProvider ports.AIProviderPort
+	MemoryAdapter        ports.MemoryPort
 
 	// Messaging
 	ChanReg               *msgrouter.Registry
