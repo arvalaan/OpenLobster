@@ -96,7 +96,7 @@ type UpsertEntityTool struct {
 func (t *UpsertEntityTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name: "upsert_entity",
-		Description: "Create or update a typed entity node (Person, Pet, Place, Organization, Event, Goal, Asset, Topic) " +
+		Description: "Create or update a typed entity node (Person, Place, Thing, Story) " +
 			"and create/update the relationship from the user node to it. " +
 			"Use this instead of add_memory whenever the information clearly maps to one of the typed entity categories. " +
 			"HAS / AFFILIATED_WITH / LOCATED_AT relationships must always include valid_from in rel_props. " +
@@ -104,7 +104,7 @@ func (t *UpsertEntityTool) Definition() ToolDefinition {
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"type":       {"type": "string", "description": "Entity label: Person | Pet | Place | Organization | Event | Goal | Asset | Topic"},
+				"type":       {"type": "string", "description": "Entity label: Person | Place | Thing | Story"},
 				"name":       {"type": "string", "description": "Canonical name — used as uniqueness key within the type"},
 				"properties": {"type": "object", "description": "Allowed keys: description, category, notes, url, species, breed, industry, city, country, address, date, deadline, status, make, model, year, email, phone"},
 				"relation":   {"type": "string", "description": "Relationship type from user to entity: HAS_ENTITY, KNOWS, HAS_PET, LOCATED_AT, AFFILIATED_WITH, SCHEDULED_FOR, WORKING_ON, COMPLETED, HAS, INTERESTED_IN, HAS_NOTE. Defaults to HAS_ENTITY."},
@@ -124,11 +124,10 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 	}
 
 	validTypes := map[string]bool{
-		"Person": true, "Pet": true, "Place": true, "Organization": true,
-		"Event": true, "Goal": true, "Asset": true, "Topic": true,
+		"Person": true, "Place": true, "Thing": true, "Story": true,
 	}
 	if !validTypes[entityType] {
-		return nil, fmt.Errorf("type must be one of: Person, Pet, Place, Organization, Event, Goal, Asset, Topic")
+		return nil, fmt.Errorf("type must be one of: Person, Place, Thing, Story")
 	}
 
 	relation, _ := params["relation"].(string)
@@ -235,7 +234,7 @@ func (t *LinkEntitiesTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name: "link_entities",
 		Description: "Create a typed relationship between two existing entity nodes identified by their IDs. " +
-			"Use this to connect entities to each other (e.g. Person LOCATED_AT Place, Pet HAS_PET Person).",
+			"Use this to connect entities to each other (e.g. Person LOCATED_AT Place, Person KNOWS Person).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -325,7 +324,7 @@ func (t *FindEntityTool) Definition() ToolDefinition {
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"type": {"type": "string", "description": "Entity label: Person | Pet | Place | Organization | Event | Goal | Asset | Topic | Memory"},
+				"type": {"type": "string", "description": "Entity label: Person | Place | Thing | Story"},
 				"name": {"type": "string", "description": "Canonical name of the entity"}
 			},
 			"required": ["type", "name"]
@@ -501,7 +500,7 @@ func (t *ListEntitiesTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name: "list_entities",
 		Description: "List entity nodes linked to the user. " +
-			"Optionally filter by entity type (Person, Pet, Place, …) or relationship type (SPOUSE_OF, LIKES, …).",
+			"Optionally filter by entity type (Person, Place, Thing, Story) or relationship type (KNOWS, LOCATED_AT, …).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -975,7 +974,7 @@ func (t *PromoteAssertionTool) Definition() ToolDefinition {
 			"type": "object",
 			"properties": {
 				"assertion_id": {"type": "string", "description": "ID of the Assertion to promote"},
-				"entity_type":  {"type": "string", "description": "Person | Pet | Place | Organization | Event | Goal | Asset | Topic"},
+				"entity_type":  {"type": "string", "description": "Person | Place | Thing | Story"},
 				"entity_name":  {"type": "string", "description": "Canonical name for the entity"},
 				"relation":     {"type": "string", "description": "Relationship type from user to entity (e.g. KNOWS, LOCATED_AT, HAS). Defaults to HAS_ENTITY."},
 				"properties":   {"type": "object", "description": "Allowed keys: description, category, notes, url, species, breed, industry, city, country, address, date, deadline, status, make, model, year, email, phone"},
@@ -997,11 +996,10 @@ func (t *PromoteAssertionTool) Execute(ctx context.Context, params map[string]in
 	}
 
 	validTypes := map[string]bool{
-		"Person": true, "Pet": true, "Place": true, "Organization": true,
-		"Event": true, "Goal": true, "Asset": true, "Topic": true,
+		"Person": true, "Place": true, "Thing": true, "Story": true,
 	}
 	if !validTypes[entityType] {
-		return nil, fmt.Errorf("entity_type must be one of: Person, Pet, Place, Organization, Event, Goal, Asset, Topic")
+		return nil, fmt.Errorf("entity_type must be one of: Person, Place, Thing, Story")
 	}
 
 	relation, _ := params["relation"].(string)

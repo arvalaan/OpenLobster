@@ -160,17 +160,13 @@ Prefer typed entity tools over add_memory whenever possible:
 
 | Information type        | Tool to use                           | Example relation + role                     |
 |------------------------|---------------------------------------|---------------------------------------------|
-| People in user's life  | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague/parent |
-| Pets                   | upsert_entity type=Pet                | HAS_PET                                     |
+| People / pets          | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague/pet    |
 | Locations              | upsert_entity type=Place              | LOCATED_AT + role=lives/frequents/visited   |
-| Employers / orgs       | upsert_entity type=Organization       | AFFILIATED_WITH + role=employee/member      |
-| Appointments / events  | upsert_entity type=Event              | SCHEDULED_FOR + role=upcoming/attended      |
-| Current goals/projects | upsert_entity type=Goal               | WORKING_ON                                  |
-| Vehicles/devices/subs  | upsert_entity type=Asset              | HAS + role=owns/leases/subscribes           |
-| Interests / hobbies    | upsert_entity type=Topic              | INTERESTED_IN + role=expert/learning/likes  |
+| Orgs / assets / topics | upsert_entity type=Thing              | HAS, AFFILIATED_WITH, INTERESTED_IN         |
+| Events / goals / projects | upsert_entity type=Story           | SCHEDULED_FOR, WORKING_ON, COMPLETED        |
 
 After creating entity nodes, call link_entities to connect them to each other
-where a direct relationship exists (e.g. Alex LOCATED_AT Portland, Luna HAS_PET Alex).
+where a direct relationship exists (e.g. Alex LOCATED_AT Portland, Luna KNOWS Alex).
 
 Use add_memory ONLY for free-text context that genuinely has no entity home
 (e.g. "Alice started a new role in March 2024", "prefers dark mode").
