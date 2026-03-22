@@ -160,7 +160,8 @@ Prefer typed entity tools over add_memory whenever possible:
 
 | Information type        | Tool to use                           | Example relation + role                     |
 |------------------------|---------------------------------------|---------------------------------------------|
-| People / pets          | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague/pet    |
+| People                 | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague        |
+| Pets                   | upsert_entity type=Thing              | HAS + role=pet                              |
 | Locations              | upsert_entity type=Place              | LOCATED_AT + role=lives/frequents/visited   |
 | Orgs / assets / topics | upsert_entity type=Thing              | HAS, AFFILIATED_WITH, INTERESTED_IN         |
 | Events / goals / projects | upsert_entity type=Story           | SCHEDULED_FOR, WORKING_ON, COMPLETED        |

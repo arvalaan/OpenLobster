@@ -294,8 +294,34 @@ func formatGraphAsText(graph *ports.Graph) string {
 			fmt.Fprintf(&b, "- [node_id:%s] %s\n", target.ID, target.Value)
 		default:
 			// Typed entities: show relation and type for richer context
-			fmt.Fprintf(&b, "- [%s] %s: %s\n", edge.Label, target.Type, target.Value)
+			desc := target.Value
+			if d, ok := target.Properties["description"]; ok && d != "" && d != target.Value {
+				desc = target.Value + " — " + d
+			}
+			fmt.Fprintf(&b, "- [%s] %s: %s\n", edge.Label, target.Type, desc)
 		}
+	}
+
+	// Emit entity-to-entity relationships for full context.
+	// E.g. "Nina LOCATED_AT Almere", "Independer PART_OF DPG Media"
+	hasE2E := false
+	for _, edge := range graph.Edges {
+		source, ok := nodeMap[edge.Source]
+		if !ok {
+			continue
+		}
+		if source.Type == "user" {
+			continue
+		}
+		target, ok := nodeMap[edge.Target]
+		if !ok || target.Type == "user" {
+			continue
+		}
+		if !hasE2E {
+			b.WriteString("\nEntity relationships:\n")
+			hasE2E = true
+		}
+		fmt.Fprintf(&b, "- %s -[%s]-> %s\n", source.Value, edge.Label, target.Value)
 	}
 
 	return b.String()

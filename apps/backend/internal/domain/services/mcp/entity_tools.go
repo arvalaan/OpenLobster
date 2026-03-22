@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -19,10 +17,13 @@ const entityNeoUnavailable = `{"error":"entity nodes require a Neo4j backend; us
 // Use the "role" rel_prop for specificity (e.g. KNOWS + role=spouse).
 var validRelationTypes = map[string]bool{
 	// User-to-entity
-	"HAS_ENTITY": true, "KNOWS": true, "HAS_PET": true,
+	"HAS_ENTITY": true, "KNOWS": true,
 	"LOCATED_AT": true, "AFFILIATED_WITH": true,
 	"SCHEDULED_FOR": true, "WORKING_ON": true, "COMPLETED": true,
 	"HAS": true, "INTERESTED_IN": true, "HAS_NOTE": true,
+	// Event/Organization relations (upstream)
+	"ATTENDED": true, "PARTICIPATED_IN": true, "EXPERIENCED": true,
+	"MEMBER_OF": true, "WORKS_FOR": true, "STUDIES_AT": true,
 	// Assertion/Episode
 	"ASSERTED": true, "ABOUT": true, "DERIVED_FROM": true,
 	"IN_EPISODE": true, "INVOLVES": true,
@@ -107,7 +108,7 @@ func (t *UpsertEntityTool) Definition() ToolDefinition {
 				"type":       {"type": "string", "description": "Entity label: Person | Place | Thing | Story"},
 				"name":       {"type": "string", "description": "Canonical name — used as uniqueness key within the type"},
 				"properties": {"type": "object", "description": "Allowed keys: description, category, notes, url, species, breed, industry, city, country, address, date, deadline, status, make, model, year, email, phone"},
-				"relation":   {"type": "string", "description": "Relationship type from user to entity: HAS_ENTITY, KNOWS, HAS_PET, LOCATED_AT, AFFILIATED_WITH, SCHEDULED_FOR, WORKING_ON, COMPLETED, HAS, INTERESTED_IN, HAS_NOTE. Defaults to HAS_ENTITY."},
+				"relation":   {"type": "string", "description": "Relationship type from user to entity: HAS_ENTITY, KNOWS, LOCATED_AT, AFFILIATED_WITH, SCHEDULED_FOR, WORKING_ON, COMPLETED, HAS, INTERESTED_IN, HAS_NOTE. Defaults to HAS_ENTITY."},
 				"rel_props":  {"type": "object", "description": "Allowed keys: role, valid_from, valid_to, notes (e.g. {\"role\": \"spouse\", \"valid_from\": \"2024-01-01T00:00:00Z\"})"},
 				"for_user":   {"type": "string", "description": "User display name. Only for consolidation agents — omit for normal interactions."}
 			},
@@ -124,10 +125,10 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 	}
 
 	validTypes := map[string]bool{
-		"Person": true, "Place": true, "Thing": true, "Story": true,
+		"Person": true, "Place": true, "Thing": true, "Story": true, "Event": true, "Organization": true,
 	}
 	if !validTypes[entityType] {
-		return nil, fmt.Errorf("type must be one of: Person, Place, Thing, Story")
+		return nil, fmt.Errorf("type must be one of: Person, Place, Thing, Story, Event, Organization")
 	}
 
 	relation, _ := params["relation"].(string)
@@ -652,7 +653,7 @@ func (t *UpsertAssertionTool) Definition() ToolDefinition {
 		Name: "upsert_assertion",
 		Description: "Create or update an Assertion node — a claim extracted from conversation. " +
 			"Assertions serve as a staging area with confidence tracking before promotion to typed entities. " +
-			"Duplicate content (by hash) increments mention_count and bumps confidence.",
+			"Duplicate assertions (matched by label) increment mention_count and bump confidence.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -707,15 +708,16 @@ func (t *UpsertAssertionTool) Execute(ctx context.Context, params map[string]int
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	hash := contentHash(content)
 
 	cypher := fmt.Sprintf(`
-MERGE (a:Assertion {contentHash: %s})
-ON CREATE SET a.id = randomUUID(), a.content = %s, a.label = %s,
+MERGE (a:Assertion {label: %s})
+ON CREATE SET a.id = randomUUID(), a.content = %s,
               a.confidence = %f, a.valid_from = %s,
               a.txn_created_at = %s, a.source = "conversation",
               a.conversation_id = %s, a.mention_count = 1, a.promoted = false
-ON MATCH SET  a.txn_updated_at = %s,
+ON MATCH SET  a.content = CASE WHEN size(%s) > size(coalesce(a.content, ""))
+                           THEN %s ELSE a.content END,
+              a.txn_updated_at = %s,
               a.mention_count = a.mention_count + 1,
               a.confidence = CASE WHEN a.confidence + 0.1 > 1.0 THEN 1.0
                              ELSE a.confidence + 0.1 END
@@ -724,13 +726,14 @@ MATCH (u:User) WHERE u.id = %s OR u.name = %s
 MERGE (u)-[r:ASSERTED]->(a)
 ON CREATE SET r.txn_created_at = %s
 RETURN a.id AS id, a.confidence AS confidence, a.mention_count AS mentions`,
-		jsonStr(hash),
-		jsonStr(content),
 		jsonStr(label),
+		jsonStr(content),
 		conf,
 		jsonStr(validFrom),
 		jsonStr(now),
 		jsonStr(convID),
+		jsonStr(content),
+		jsonStr(content),
 		jsonStr(now),
 		jsonStr(userID),
 		jsonStr(userID),
@@ -748,11 +751,11 @@ RETURN a.id AS id, a.confidence AS confidence, a.mention_count AS mentions`,
 	// If about_entity_id is provided, create ABOUT edge.
 	if aboutEntityID != "" {
 		aboutCypher := fmt.Sprintf(`
-MATCH (a:Assertion {contentHash: %s}), (e {id: %s})
+MATCH (a:Assertion {label: %s}), (e {id: %s})
 MERGE (a)-[r:ABOUT]->(e)
 ON CREATE SET r.txn_created_at = %s
 RETURN type(r) AS rel`,
-			jsonStr(hash), jsonStr(aboutEntityID), jsonStr(now))
+			jsonStr(label), jsonStr(aboutEntityID), jsonStr(now))
 		_, aboutErr := t.Tools.Memory.QueryGraph(ctx, aboutCypher)
 		if aboutErr != nil && !isCypherUnsupported(aboutErr) {
 			return nil, fmt.Errorf("upsert_assertion: failed to link ABOUT: %w", aboutErr)
@@ -996,10 +999,10 @@ func (t *PromoteAssertionTool) Execute(ctx context.Context, params map[string]in
 	}
 
 	validTypes := map[string]bool{
-		"Person": true, "Place": true, "Thing": true, "Story": true,
+		"Person": true, "Place": true, "Thing": true, "Story": true, "Event": true, "Organization": true,
 	}
 	if !validTypes[entityType] {
-		return nil, fmt.Errorf("entity_type must be one of: Person, Place, Thing, Story")
+		return nil, fmt.Errorf("entity_type must be one of: Person, Place, Thing, Story, Event, Organization")
 	}
 
 	relation, _ := params["relation"].(string)
@@ -1133,13 +1136,6 @@ func RegisterEntityTools(reg *ToolRegistry, tools InternalTools) {
 // ─────────────────────────────────────────────────────────────
 // Cypher helpers
 // ─────────────────────────────────────────────────────────────
-
-// contentHash returns a truncated SHA-256 hex digest for deduplication.
-func contentHash(s string) string {
-	normalized := strings.ToLower(strings.TrimSpace(s))
-	h := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(h[:16])
-}
 
 // jsonStr returns a Cypher-safe JSON string literal (double-quoted, escaped).
 func jsonStr(s string) string {

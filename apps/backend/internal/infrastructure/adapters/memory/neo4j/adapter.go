@@ -217,6 +217,7 @@ func (a *Adapter) GetUserGraph(ctx context.Context, userID string) (ports.Graph,
 		}
 	}
 
+	// Phase 1: User-adjacent nodes and edges.
 	result, err := session.Run(ctx,
 		"MATCH (u:User {id: $userID})-[r]-(n) RETURN labels(n) AS labels, n.id AS id, n.content AS content, n.name AS name, n.label AS nodeLabel, type(r) AS relType, properties(u) AS userProps, properties(n) AS nodeProps",
 		map[string]interface{}{"userID": userID},
@@ -246,30 +247,44 @@ func (a *Adapter) GetUserGraph(ctx context.Context, userID string) (ports.Graph,
 		}
 
 		if idVal, ok := id.(string); ok && idVal != "" {
-			typeStr := "Node"
-			if l, ok := labels.([]interface{}); ok && len(l) > 0 {
-				if s, ok := l[0].(string); ok {
-					typeStr = s
-				}
-			}
-			// Display label: Fact's "label" property (e.g. "Real Name"); fallback to type.
-			displayLabel := typeStr
-			if nl, ok := record.Get("nodeLabel"); ok && nl != nil && fmt.Sprintf("%v", nl) != "" {
-				displayLabel = fmt.Sprintf("%v", nl)
-			}
-			var value string
-			if c, ok := record.Get("content"); ok && c != nil {
-				value = fmt.Sprintf("%v", c)
-			} else if n, ok := record.Get("name"); ok && n != nil {
-				value = fmt.Sprintf("%v", n)
-			}
-			np, _ := record.Get("nodeProps")
-			// Use real Neo4j node id so GUI delete/update work.
-			// Exclude "label" since it is already surfaced as the Label field on GraphNode.
-			nodes[idVal] = ports.GraphNode{ID: idVal, Label: displayLabel, Type: strings.ToLower(typeStr), Value: value, Properties: neo4jPropsToMap(np, "id", "displayName", "label")}
+			addNodeFromRecord(nodes, record, idVal, labels)
 			edges = append(edges, ports.GraphEdge{Source: userNodeID, Target: idVal, Label: fmt.Sprintf("%v", relType)})
 		}
 	}
+
+	// Phase 2: Entity-to-entity edges between nodes already in the user's subgraph.
+	// This surfaces relationships like "Independer PART_OF DPG Media" or
+	// "Nina LOCATED_AT Almere" that the LLM needs for full context.
+	if len(nodes) > 1 { // more than just the user node
+		entityIDs := make([]string, 0, len(nodes))
+		for id := range nodes {
+			if id != userNodeID {
+				entityIDs = append(entityIDs, id)
+			}
+		}
+		e2eResult, e2eErr := session.Run(ctx,
+			"MATCH (a)-[r]->(b) WHERE a.id IN $ids AND b.id IN $ids RETURN a.id AS fromID, b.id AS toID, type(r) AS relType, r.role AS role",
+			map[string]interface{}{"ids": entityIDs},
+		)
+		if e2eErr == nil {
+			for e2eResult.Next(ctx) {
+				rec := e2eResult.Record()
+				fromID, _ := rec.Get("fromID")
+				toID, _ := rec.Get("toID")
+				relT, _ := rec.Get("relType")
+				if f, ok := fromID.(string); ok {
+					if t, ok := toID.(string); ok {
+						label := fmt.Sprintf("%v", relT)
+						if role, ok := rec.Get("role"); ok && role != nil && fmt.Sprintf("%v", role) != "" {
+							label += " (" + fmt.Sprintf("%v", role) + ")"
+						}
+						edges = append(edges, ports.GraphEdge{Source: f, Target: t, Label: label})
+					}
+				}
+			}
+		}
+	}
+
 	// Ensure user node is present even when there are no connected nodes.
 	if _, exists := nodes[userNodeID]; !exists {
 		nodes[userNodeID] = userNode
@@ -356,6 +371,38 @@ func (a *Adapter) getFullGraph(ctx context.Context, session neo4j.SessionWithCon
 	}
 
 	return ports.Graph{Nodes: graphNodes, Edges: edges}, result.Err()
+}
+
+// addNodeFromRecord extracts a GraphNode from a Cypher result record and inserts
+// it into the nodes map if it doesn't already exist.
+func addNodeFromRecord(nodes map[string]ports.GraphNode, record *neo4j.Record, idVal string, labels interface{}) {
+	if _, exists := nodes[idVal]; exists {
+		return
+	}
+	typeStr := "Node"
+	if l, ok := labels.([]interface{}); ok && len(l) > 0 {
+		if s, ok := l[0].(string); ok {
+			typeStr = s
+		}
+	}
+	displayLabel := typeStr
+	if nl, ok := record.Get("nodeLabel"); ok && nl != nil && fmt.Sprintf("%v", nl) != "" {
+		displayLabel = fmt.Sprintf("%v", nl)
+	}
+	var value string
+	if c, ok := record.Get("content"); ok && c != nil {
+		value = fmt.Sprintf("%v", c)
+	} else if n, ok := record.Get("name"); ok && n != nil {
+		value = fmt.Sprintf("%v", n)
+	}
+	np, _ := record.Get("nodeProps")
+	nodes[idVal] = ports.GraphNode{
+		ID:         idVal,
+		Label:      displayLabel,
+		Type:       strings.ToLower(typeStr),
+		Value:      value,
+		Properties: neo4jPropsToMap(np, "id", "displayName", "label"),
+	}
 }
 
 // sanitizeRelType returns a safe Cypher relationship type (uppercase alphanumeric + underscore).
@@ -453,10 +500,15 @@ func (a *Adapter) SetUserProperty(ctx context.Context, userID, key, value string
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	safeKey := sanitizePropKey(key)
+	if safeKey == "" {
+		return fmt.Errorf("invalid property key %q", key)
+	}
+
 	session := a.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
-	cypher := fmt.Sprintf(`MERGE (u:User {id: $userID}) SET u.%s = $value`, key)
+	cypher := fmt.Sprintf(`MERGE (u:User {id: $userID}) SET u.%s = $value`, safeKey)
 	result, err := session.Run(ctx, cypher, map[string]interface{}{
 		"userID": userID,
 		"value":  value,
@@ -724,7 +776,7 @@ func (b *Neo4jMemoryBackend) GetRelatedEntities(ctx context.Context, entityID st
 	session := b.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
 
-	cypher := fmt.Sprintf("MATCH (e:Entity {id: $entityId})-[r:%s]->(related:Entity) RETURN related.id AS id", strings.ToUpper(relationType))
+	cypher := fmt.Sprintf("MATCH (e {id: $entityId})-[r:%s]->(related) RETURN related.id AS id", sanitizeRelType(relationType))
 	result, err := session.Run(ctx, cypher, map[string]interface{}{"entityId": entityID})
 	if err != nil {
 		return nil, err

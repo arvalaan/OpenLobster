@@ -24,10 +24,11 @@ func (a *App) seedSystemTasks(ctx context.Context) {
 	}
 
 	if a.Cfg.Scheduler.MemoryEnabled {
-		a.seedOrUpdateSystemTask(ctx,
-			domainservices.MemoryConsolidationPrompt,
-			durationToHourlyCron(a.Cfg.Scheduler.MemoryInterval),
-		)
+		// Memory consolidation is now driven by the scheduler's memTickerC
+		// (map-reduce pipeline) — no longer a cron task through loopback.
+		// Remove any legacy consolidation task that may still exist in the DB.
+		a.removeObsoleteTask(ctx, domainservices.MemoryConsolidationPrompt)
+
 		// Confidence check: daily at 10:00 — reviews low-confidence assertions
 		// and proactively messages users to verify uncertain information.
 		a.seedOrUpdateSystemTask(ctx,
@@ -71,6 +72,28 @@ func (a *App) seedOrUpdateSystemTask(ctx context.Context, prompt, schedule strin
 		a.SchedulerNotify()
 	}
 	log.Printf("scheduler: seeded system task (schedule=%s): %s…", schedule, prompt[:min(60, len(prompt))])
+}
+
+// removeObsoleteTask deletes a seeded system task by prompt text if it exists.
+// Used to clean up tasks that have been superseded by other mechanisms.
+func (a *App) removeObsoleteTask(ctx context.Context, prompt string) {
+	tasks, err := a.TaskRepo.ListAll(ctx)
+	if err != nil {
+		return
+	}
+	for _, t := range tasks {
+		if t.Prompt == prompt {
+			if err := a.TaskRepo.Delete(ctx, t.ID); err != nil {
+				log.Printf("scheduler: failed to remove obsolete task: %v", err)
+			} else {
+				log.Printf("scheduler: removed obsolete system task: %s…", prompt[:min(60, len(prompt))])
+			}
+			if a.SchedulerNotify != nil {
+				a.SchedulerNotify()
+			}
+			return
+		}
+	}
 }
 
 // durationToHourlyCron converts a duration to the nearest whole-hour cron

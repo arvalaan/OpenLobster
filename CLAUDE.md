@@ -65,20 +65,22 @@ are known conflict zones. For each one the correct resolution is described.
   `BuildFromConfig` signature, apply same changes to `BuildBackgroundFromConfig`.
 
 ### 2. `apps/backend/internal/domain/services/scheduler/scheduler_service.go`
-- **Risk**: upstream may re-add the hidden `memTickerC` memory consolidation ticker.
-- **Resolution**: keep our version — the ticker was removed because consolidation
-  now runs as a visible cron task seeded at startup (`startup.go`). Do NOT bring
-  the ticker back; it would double-run consolidation.
+- **Risk**: upstream may change the `memTickerC` consolidation ticker or `NewScheduler` signature.
+- **Resolution**: keep the 5-param `NewScheduler(memInterval, memEnabled, dispatcher,
+  taskRepo, consolidation)` and the `memTickerC` ticker in `Run()` that calls
+  `s.consolidateMemory()` → `s.consolidation.Consolidate()`. This drives the
+  map-reduce consolidation pipeline directly (not through loopback).
   Also keep the `ConfidenceCheckPrompt` constant — it drives the daily assertion
   verification task.
 
 ### 3. `apps/backend/cmd/openlobster/serve/lifecycle.go`
 - **Risk**: upstream may change `NewScheduler(...)` call signature or remove the
   `seedSystemTasks` call.
-- **Resolution**: keep `domainservices.NewScheduler(dispatcher, a.TaskRepo)` (no
-  mem-interval params) and keep `a.seedSystemTasks(ctx)` before `go sched.Run(ctx)`.
-  Also preserve the Mattermost case in the channel-listener switch.
-  Keep `a.BackgroundAIProvider` as the second argument to `NewLoopbackDispatcher`.
+- **Resolution**: keep `NewScheduler(memInterval, memEnabled, dispatcher, taskRepo,
+  consolidationSvc)` with all 5 params. Keep `a.seedSystemTasks(ctx)` before
+  `go sched.Run(ctx)`. Keep `memory_consolidation.NewService(...)` wiring with
+  `a.BackgroundAIProvider`. Preserve the Mattermost case in the channel-listener
+  switch. Keep `a.BackgroundAIProvider` as the second arg to `NewLoopbackDispatcher`.
 
 ### 4. `apps/backend/cmd/openlobster/serve/graphql.go`
 - **Risk**: upstream may reset `buildInitialChannels()` to only Discord/Telegram.
@@ -142,7 +144,7 @@ are known conflict zones. For each one the correct resolution is described.
   - Node existence check in `LinkEntitiesTool`
   - Four new tools: `UpsertAssertionTool`, `CreateEpisodeTool`, `ListAssertionsTool`,
     `PromoteAssertionTool` — plus their registration in `RegisterEntityTools()`
-  - `contentHash()` helper
+  - `UpsertAssertionTool` uses MERGE by `label` (not contentHash) for dedup
   If upstream adds new entity tools, add relation/property validation to them too.
 
 ### 10. `apps/backend/internal/domain/handlers/archivist_dispatcher.go`
@@ -163,10 +165,22 @@ are known conflict zones. For each one the correct resolution is described.
 ### 12. `apps/backend/cmd/openlobster/serve/startup.go`
 - **Risk**: upstream may modify `seedSystemTasks()` or `seedTaskIfAbsent()`.
 - **Resolution**: keep `seedOrUpdateSystemTask` (replaces `seedTaskIfAbsent`). It's
-  a superset — creates if absent, updates schedule if changed. This ensures DB
-  tasks track config changes (e.g. memory_interval env var) on restart.
-  Keep the confidence check task seed (`ConfidenceCheckPrompt` at `"0 10 * * *"`).
-  Both are gated behind `MemoryEnabled`.
+  a superset — creates if absent, updates schedule if changed.
+  Memory consolidation is NO LONGER a seeded cron task — it runs via the
+  scheduler's `memTickerC` (map-reduce pipeline). On startup, any legacy
+  consolidation task is removed by `removeObsoleteTask`. Only the confidence
+  check task is seeded (`ConfidenceCheckPrompt` at `"0 10 * * *"`).
+  Both cleanup and seeding are gated behind `MemoryEnabled`.
+
+### 18. `apps/backend/internal/domain/services/memory_consolidation/service.go`
+- **Risk**: upstream may change the consolidation service's sync phase or prompts.
+- **Resolution**: we extended `syncFindings()` with entity/assertion tools
+  (`upsert_entity`, `upsert_assertion`, `link_entities`) in addition to upstream's
+  `add_memory` and `set_user_property`. The sync prompt includes an entity type
+  mapping table. The sync phase now uses multi-round tool calling (up to 5 rounds).
+  All entity validation (type allowlist, relation allowlist) mirrors `entity_tools.go`.
+  Keep the `GetUnvalidated`/`MarkAsValidated` checkpointing — this prevents
+  re-processing the same messages on every run.
 
 ### 13. `apps/backend/internal/domain/services/services.go`
 - **Risk**: upstream may not have our re-exported constants.

@@ -26,10 +26,12 @@ expiring stale data, and filling in missing cross-links.
 
 | Label        | Typical relations from User              | Notes                                     |
 |-------------|------------------------------------------|-------------------------------------------|
-| Person       | KNOWS (role=friend/spouse/colleague/…)  | People and pets in the user's life        |
+| Person       | KNOWS (role=friend/spouse/colleague/…)  | People in the user's life                 |
 | Place        | LOCATED_AT (role=lives/frequents/visited)| Homes, workplaces, cities, regions        |
-| Thing        | HAS, AFFILIATED_WITH, INTERESTED_IN      | Orgs, assets, topics, interests, objects  |
-| Story        | SCHEDULED_FOR, WORKING_ON, COMPLETED     | Events, goals, projects, narratives       |
+| Organization | AFFILIATED_WITH, MEMBER_OF, WORKS_FOR    | Companies, schools, teams, institutions   |
+| Event        | ATTENDED, PARTICIPATED_IN, SCHEDULED_FOR | Time-bound occurrences, appointments      |
+| Thing        | HAS, INTERESTED_IN                       | Objects, hobbies, topics, pets            |
+| Story        | WORKING_ON, COMPLETED                    | Goals, projects, personal narratives      |
 | Assertion    | ASSERTED (User→Assertion)                | Staging area with confidence tracking     |
 | Episode      | INVOLVES (Episode→User)                  | Groups assertions from one run            |
 
