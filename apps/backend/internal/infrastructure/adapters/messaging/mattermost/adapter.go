@@ -3,6 +3,8 @@ package mattermost
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -193,21 +195,32 @@ func findSplitPoint(content string, maxSize int) int {
 }
 
 // SendMedia posts a message with an optional file attachment.
-// If media.URL is set but no binary data is available, the URL is appended to
-// the caption so users can still access the resource.
+// media.URL is treated as a local file path (consistent with the Telegram
+// adapter). The file is read from disk, uploaded via the Mattermost API, and
+// attached to the post. If the file cannot be read or uploaded, the caption
+// is posted as a plain text message instead.
 func (a *Adapter) SendMedia(ctx context.Context, media *ports.Media) error {
-	text := media.Caption
-	if media.URL != "" && text == "" {
-		text = media.URL
-	} else if media.URL != "" {
-		text = media.Caption + "\n" + media.URL
-	}
-
 	rootID := ""
 	if v, ok := a.threadRoots.Load(media.ChatID); ok {
 		rootID, _ = v.(string)
 	}
-	_, err := a.client.CreatePost(ctx, media.ChatID, text, rootID, nil)
+
+	var fileIDs []string
+	if media.URL != "" {
+		data, err := os.ReadFile(media.URL)
+		if err == nil {
+			filename := media.FileName
+			if filename == "" {
+				filename = filepath.Base(media.URL)
+			}
+			if fid, uploadErr := a.client.UploadFile(ctx, media.ChatID, data, filename); uploadErr == nil {
+				fileIDs = []string{fid}
+			}
+		}
+	}
+
+	text := media.Caption
+	_, err := a.client.CreatePost(ctx, media.ChatID, text, rootID, fileIDs)
 	if err != nil {
 		return fmt.Errorf("mattermost send media: %w", err)
 	}
