@@ -16,6 +16,7 @@ import (
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/telegram"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/twilio"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/whatsapp"
+	"github.com/neirth/openlobster/internal/infrastructure/config"
 	"github.com/spf13/viper"
 )
 
@@ -174,7 +175,7 @@ func (a *App) rebuildActiveChannels() []dto.ChannelStatus {
 		if a.ChanReg.Get(key) != nil {
 			name := strings.TrimPrefix(key, "mattermost:")
 			list = append(list, dto.ChannelStatus{
-				ID: key, Name: "mattermost:" + name, Type: "mattermost", Status: "online",
+				ID: key, Name: "Mattermost: " + name, Type: "mattermost", Status: "online",
 				Enabled: true, Capabilities: channelCaps["mattermost"],
 			})
 		}
@@ -235,6 +236,12 @@ func (a *App) reloadChannel(channelType string) {
 			if sid != "" && tok != "" && from != "" {
 				newAdapter = twilio.NewAdapter(sid, tok, from)
 			}
+		case "mattermost":
+			a.reloadMattermost()
+			if a.HTTPHandler != nil {
+				a.HTTPHandler.UpdateAgentChannels(a.rebuildActiveChannels())
+			}
+			return
 		}
 	}
 
@@ -271,5 +278,60 @@ func (a *App) reloadChannel(channelType string) {
 
 	if a.HTTPHandler != nil {
 		a.HTTPHandler.UpdateAgentChannels(a.rebuildActiveChannels())
+	}
+}
+
+// reloadMattermost tears down all existing Mattermost adapters and recreates
+// them from the current viper config. Mattermost is multi-profile, so a single
+// reload replaces all profile adapters at once.
+func (a *App) reloadMattermost() {
+	// Remove all existing Mattermost adapters from the registry.
+	for _, key := range a.MattermostProfileKeys {
+		a.ChanReg.Remove(key)
+	}
+	a.MattermostProfileKeys = nil
+
+	enabled := viper.GetBool("channels.mattermost.enabled")
+	if !enabled {
+		log.Println("channel: mattermost — deactivated (disabled)")
+		return
+	}
+
+	serverURL := viper.GetString("channels.mattermost.server_url")
+	if serverURL == "" {
+		log.Println("channel: mattermost — deactivated (no server_url)")
+		return
+	}
+
+	// Unmarshal profiles from viper.
+	var mmCfg config.MattermostConfig
+	if sub := viper.Sub("channels.mattermost"); sub != nil {
+		_ = sub.Unmarshal(&mmCfg)
+	}
+	if len(mmCfg.Profiles) == 0 {
+		log.Println("channel: mattermost — deactivated (no profiles)")
+		return
+	}
+
+	sr := mattermostadapter.NewStickyRouter()
+	for _, profile := range mmCfg.Profiles {
+		p := profile
+		ad, err := mattermostadapter.NewAdapter(serverURL, p, sr)
+		if err != nil {
+			log.Printf("channel: mattermost[%s] — reload failed: %v", p.Name, err)
+			continue
+		}
+		key := ad.ChannelType()
+		a.ChanReg.Set(key, ad)
+		a.MattermostProfileKeys = append(a.MattermostProfileKeys, key)
+		if a.ChannelStartCtx != nil {
+			ct := key
+			go func() {
+				if err := ad.Start(a.ChannelStartCtx, a.makeChannelMsgHandler(ct)); err != nil {
+					log.Printf("channel: mattermost[%s] — listener failed (hot): %v", p.Name, err)
+				}
+			}()
+		}
+		log.Printf("channel: mattermost[%s] — reloaded OK (hot)", p.Name)
 	}
 }

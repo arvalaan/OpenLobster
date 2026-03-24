@@ -193,6 +193,36 @@ func (c *Client) UploadFile(ctx context.Context, channelID string, data []byte, 
 	return uploadResp.FileInfos[0].ID, nil
 }
 
+// mmFileInfo is a subset of the Mattermost FileInfo object.
+type mmFileInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	MimeType  string `json:"mime_type"`
+	Extension string `json:"extension"`
+}
+
+// GetFileInfo returns metadata for a single file attachment.
+func (c *Client) GetFileInfo(ctx context.Context, fileID string) (*mmFileInfo, error) {
+	resp, err := c.doRequest(ctx, "GET", "/files/"+fileID+"/info", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var fi mmFileInfo
+	return &fi, json.NewDecoder(resp.Body).Decode(&fi)
+}
+
+// GetFileContent downloads the raw bytes of a file attachment.
+func (c *Client) GetFileContent(ctx context.Context, fileID string) ([]byte, error) {
+	resp, err := c.doRequest(ctx, "GET", "/files/"+fileID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
 // PostTyping notifies Mattermost users that the bot is typing in channelID.
 // The indicator is visible for ~5 s; call repeatedly to maintain it.
 // userID must be the bot's own user ID (obtained via GetMe).
