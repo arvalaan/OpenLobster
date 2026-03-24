@@ -94,6 +94,8 @@ func GetCapabilitiesForChannel(channelType ChannelType) ChannelCapabilities {
 		return TwilioCapabilities
 	case ChannelSlack:
 		return SlackCapabilities
+	case ChannelMattermost:
+		return MattermostCapabilities
 	default:
 		return TelegramCapabilities
 	}

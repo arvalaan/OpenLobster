@@ -97,7 +97,7 @@ func sendUpdateConfig(t *testing.T, handler http.Handler, input map[string]inter
 // queryConfig sends the config query and returns the config data map.
 func queryConfig(t *testing.T, handler http.Handler) map[string]interface{} {
 	t.Helper()
-	const q = `{"query": "query { config { agent { name systemPrompt provider model apiKey baseURL ollamaHost ollamaApiKey anthropicApiKey dockerModelRunnerEndpoint dockerModelRunnerModel reasoningLevel } capabilities { browser terminal subagents memory mcp filesystem sessions } database { driver dsn maxOpenConns maxIdleConns } memory { backend filePath neo4j { uri user password } } subagents { maxConcurrent defaultTimeout } graphql { enabled port host baseUrl } logging { level path } secrets { backend file { path } openbao { url token } } scheduler { enabled memoryEnabled memoryInterval } channelSecrets { telegramEnabled telegramToken discordEnabled discordToken slackEnabled slackBotToken slackAppToken whatsAppEnabled whatsAppPhoneId whatsAppApiToken twilioEnabled twilioAccountSid twilioAuthToken twilioFromNumber } wizardCompleted } }"}`
+	const q = `{"query": "query { config { agent { name systemPrompt provider model apiKey baseURL ollamaHost ollamaApiKey anthropicApiKey dockerModelRunnerEndpoint dockerModelRunnerModel reasoningLevel } capabilities { browser terminal subagents memory mcp filesystem sessions } database { driver dsn maxOpenConns maxIdleConns } memory { backend filePath neo4j { uri user password } } subagents { maxConcurrent defaultTimeout } graphql { enabled port host baseUrl } logging { level path } secrets { backend file { path } openbao { url token } } scheduler { enabled memoryEnabled memoryInterval } channelSecrets { telegramEnabled telegramToken discordEnabled discordToken slackEnabled slackBotToken slackAppToken whatsAppEnabled whatsAppPhoneId whatsAppApiToken twilioEnabled twilioAccountSid twilioAuthToken twilioFromNumber mattermostEnabled mattermostServerURL mattermostBotToken } wizardCompleted } }"}`
 	resp := gqlPost(t, handler, q)
 	assert.Nil(t, resp["errors"], "config query returned errors: %v", resp["errors"])
 	d := dataOf(t, resp)
@@ -203,6 +203,10 @@ func TestConfigRoundTrip_OpenAI(t *testing.T) {
 		"channelTwilioAccountSid": "AC-integ",
 		"channelTwilioAuthToken":  "tw-integ",
 		"channelTwilioFromNumber": "+15550099",
+		// Channel — Mattermost
+		"channelMattermostEnabled":   true,
+		"channelMattermostServerURL": "https://chat.integ.test",
+		"channelMattermostBotToken":  "mm-integ-token",
 
 		// Wizard
 		"wizardCompleted": true,
@@ -293,6 +297,9 @@ func TestConfigRoundTrip_OpenAI(t *testing.T) {
 	assert.Equal(t, "AC-integ", str(ch, "twilioAccountSid"), "channelSecrets.twilioAccountSid")
 	assert.Equal(t, "tw-integ", str(ch, "twilioAuthToken"), "channelSecrets.twilioAuthToken")
 	assert.Equal(t, "+15550099", str(ch, "twilioFromNumber"), "channelSecrets.twilioFromNumber")
+	assert.True(t, boolean(ch, "mattermostEnabled"), "channelSecrets.mattermostEnabled")
+	assert.Equal(t, "https://chat.integ.test", str(ch, "mattermostServerURL"), "channelSecrets.mattermostServerURL")
+	assert.Equal(t, "mm-integ-token", str(ch, "mattermostBotToken"), "channelSecrets.mattermostBotToken")
 
 	// ── wizard ──
 	assert.True(t, boolean(cfg, "wizardCompleted"), "wizardCompleted")

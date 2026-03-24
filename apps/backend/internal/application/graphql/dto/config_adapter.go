@@ -41,7 +41,22 @@ func (a *ConfigUpdateAdapter) Apply(ctx context.Context, input map[string]interf
 		if !ok {
 			continue
 		}
-		viper.Set(viperKey, val)
+		if inputKey == "channelMattermostBotToken" {
+			// Profiles is a slice — set the first element directly.
+			profiles := viper.Get("channels.mattermost.profiles")
+			if profiles == nil {
+				viper.Set("channels.mattermost.profiles", []map[string]interface{}{
+					{"name": "default", "bot_token": val},
+				})
+			} else if ps, ok := profiles.([]interface{}); ok && len(ps) > 0 {
+				if m, ok := ps[0].(map[string]interface{}); ok {
+					m["bot_token"] = val
+					viper.Set("channels.mattermost.profiles", ps)
+				}
+			}
+		} else {
+			viper.Set(viperKey, val)
+		}
 		switch inputKey {
 		case "channelTelegramEnabled", "channelTelegramToken":
 			channelTouched["telegram"] = true
@@ -215,7 +230,7 @@ func InputToViperKeyMap() map[string]string {
 		"channelSlackAppToken":         "channels.slack.app_token",
 		"channelMattermostEnabled":     "channels.mattermost.enabled",
 		"channelMattermostServerURL":   "channels.mattermost.server_url",
-		"channelMattermostBotToken":    "channels.mattermost.profiles[0].bot_token",
+		"channelMattermostBotToken":    "channels.mattermost.bot_token",
 		"wizardCompleted":              "wizard.completed",
 		"reasoningLevel":               "agent.reasoning_level",
 	}
