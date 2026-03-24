@@ -12,5 +12,6 @@ const (
 	// system-initiated agentic executions. It has no external messaging
 	// adapter; execution is ephemeral and no conversation history is
 	// persisted to the database.
-	ChannelLoopback ChannelType = "loopback"
+	ChannelLoopback   ChannelType = "loopback"
+	ChannelMattermost ChannelType = "mattermost"
 )

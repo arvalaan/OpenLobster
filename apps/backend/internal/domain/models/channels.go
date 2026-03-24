@@ -75,6 +75,15 @@ var SlackCapabilities = ChannelCapabilities{
 	SupportedFormats: []string{"text", "image", "video", "audio", "file"},
 }
 
+var MattermostCapabilities = ChannelCapabilities{
+	HasVoiceMessage:  false,
+	HasCallStream:    false,
+	HasTextStream:    true,
+	HasMediaSupport:  true,
+	MaxMessageSize:   4000,
+	SupportedFormats: []string{"text", "image", "video", "audio", "file"},
+}
+
 func GetCapabilitiesForChannel(channelType ChannelType) ChannelCapabilities {
 	switch channelType {
 	case ChannelDiscord:
@@ -85,6 +94,8 @@ func GetCapabilitiesForChannel(channelType ChannelType) ChannelCapabilities {
 		return TwilioCapabilities
 	case ChannelSlack:
 		return SlackCapabilities
+	case ChannelMattermost:
+		return MattermostCapabilities
 	default:
 		return TelegramCapabilities
 	}

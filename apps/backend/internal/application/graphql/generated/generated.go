@@ -132,20 +132,23 @@ type ComplexityRoot struct {
 	}
 
 	ChannelSecretsConfig struct {
-		DiscordEnabled   func(childComplexity int) int
-		DiscordToken     func(childComplexity int) int
-		SlackAppToken    func(childComplexity int) int
-		SlackBotToken    func(childComplexity int) int
-		SlackEnabled     func(childComplexity int) int
-		TelegramEnabled  func(childComplexity int) int
-		TelegramToken    func(childComplexity int) int
-		TwilioAccountSid func(childComplexity int) int
-		TwilioAuthToken  func(childComplexity int) int
-		TwilioEnabled    func(childComplexity int) int
-		TwilioFromNumber func(childComplexity int) int
-		WhatsAppAPIToken func(childComplexity int) int
-		WhatsAppEnabled  func(childComplexity int) int
-		WhatsAppPhoneID  func(childComplexity int) int
+		DiscordEnabled      func(childComplexity int) int
+		DiscordToken        func(childComplexity int) int
+		MattermostBotToken  func(childComplexity int) int
+		MattermostEnabled   func(childComplexity int) int
+		MattermostServerURL func(childComplexity int) int
+		SlackAppToken       func(childComplexity int) int
+		SlackBotToken       func(childComplexity int) int
+		SlackEnabled        func(childComplexity int) int
+		TelegramEnabled     func(childComplexity int) int
+		TelegramToken       func(childComplexity int) int
+		TwilioAccountSid    func(childComplexity int) int
+		TwilioAuthToken     func(childComplexity int) int
+		TwilioEnabled       func(childComplexity int) int
+		TwilioFromNumber    func(childComplexity int) int
+		WhatsAppAPIToken    func(childComplexity int) int
+		WhatsAppEnabled     func(childComplexity int) int
+		WhatsAppPhoneID     func(childComplexity int) int
 	}
 
 	Conversation struct {
@@ -1088,6 +1091,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ChannelSecretsConfig.DiscordToken(childComplexity), true
+	case "ChannelSecretsConfig.mattermostBotToken":
+		if e.ComplexityRoot.ChannelSecretsConfig.MattermostBotToken == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChannelSecretsConfig.MattermostBotToken(childComplexity), true
+	case "ChannelSecretsConfig.mattermostEnabled":
+		if e.ComplexityRoot.ChannelSecretsConfig.MattermostEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChannelSecretsConfig.MattermostEnabled(childComplexity), true
+	case "ChannelSecretsConfig.mattermostServerURL":
+		if e.ComplexityRoot.ChannelSecretsConfig.MattermostServerURL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ChannelSecretsConfig.MattermostServerURL(childComplexity), true
 	case "ChannelSecretsConfig.slackAppToken":
 		if e.ComplexityRoot.ChannelSecretsConfig.SlackAppToken == nil {
 			break
@@ -3338,9 +3359,12 @@ type ChannelSecretsConfig {
   twilioAccountSid: String
   twilioAuthToken:  String
   twilioFromNumber: String
-  slackEnabled:     Boolean
-  slackBotToken:    String
-  slackAppToken:    String
+  slackEnabled:              Boolean
+  slackBotToken:             String
+  slackAppToken:             String
+  mattermostEnabled:         Boolean
+  mattermostServerURL:       String
+  mattermostBotToken:        String
 }
 
 type ActiveSession {
@@ -3437,10 +3461,13 @@ input UpdateConfigInput {
   channelTwilioAccountSid: String
   channelTwilioAuthToken:  String
   channelTwilioFromNumber: String
-  channelSlackEnabled:     Boolean
-  channelSlackBotToken:    String
-  channelSlackAppToken:     String
-  wizardCompleted:         Boolean
+  channelSlackEnabled:          Boolean
+  channelSlackBotToken:         String
+  channelSlackAppToken:         String
+  channelMattermostEnabled:     Boolean
+  channelMattermostServerURL:   String
+  channelMattermostBotToken:    String
+  wizardCompleted:              Boolean
 }
 
 extend type Query {
@@ -5801,6 +5828,12 @@ func (ec *executionContext) fieldContext_AppConfig_channelSecrets(_ context.Cont
 				return ec.fieldContext_ChannelSecretsConfig_slackBotToken(ctx, field)
 			case "slackAppToken":
 				return ec.fieldContext_ChannelSecretsConfig_slackAppToken(ctx, field)
+			case "mattermostEnabled":
+				return ec.fieldContext_ChannelSecretsConfig_mattermostEnabled(ctx, field)
+			case "mattermostServerURL":
+				return ec.fieldContext_ChannelSecretsConfig_mattermostServerURL(ctx, field)
+			case "mattermostBotToken":
+				return ec.fieldContext_ChannelSecretsConfig_mattermostBotToken(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ChannelSecretsConfig", field.Name)
 		},
@@ -6972,6 +7005,93 @@ func (ec *executionContext) _ChannelSecretsConfig_slackAppToken(ctx context.Cont
 }
 
 func (ec *executionContext) fieldContext_ChannelSecretsConfig_slackAppToken(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSecretsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSecretsConfig_mattermostEnabled(ctx context.Context, field graphql.CollectedField, obj *ChannelSecretsConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSecretsConfig_mattermostEnabled,
+		func(ctx context.Context) (any, error) {
+			return obj.MattermostEnabled, nil
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSecretsConfig_mattermostEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSecretsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSecretsConfig_mattermostServerURL(ctx context.Context, field graphql.CollectedField, obj *ChannelSecretsConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSecretsConfig_mattermostServerURL,
+		func(ctx context.Context) (any, error) {
+			return obj.MattermostServerURL, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSecretsConfig_mattermostServerURL(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ChannelSecretsConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ChannelSecretsConfig_mattermostBotToken(ctx context.Context, field graphql.CollectedField, obj *ChannelSecretsConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ChannelSecretsConfig_mattermostBotToken,
+		func(ctx context.Context) (any, error) {
+			return obj.MattermostBotToken, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ChannelSecretsConfig_mattermostBotToken(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ChannelSecretsConfig",
 		Field:      field,
@@ -17767,7 +17887,7 @@ func (ec *executionContext) unmarshalInputUpdateConfigInput(ctx context.Context,
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"agentName", "systemPrompt", "provider", "model", "apiKey", "baseURL", "ollamaHost", "ollamaApiKey", "anthropicApiKey", "dockerModelRunnerEndpoint", "dockerModelRunnerModel", "reasoningLevel", "capabilities", "databaseDriver", "databaseDSN", "databaseMaxOpenConns", "databaseMaxIdleConns", "memoryBackend", "memoryFilePath", "memoryNeo4jURI", "memoryNeo4jUser", "memoryNeo4jPassword", "subagentsMaxConcurrent", "subagentsDefaultTimeout", "graphqlEnabled", "graphqlPort", "graphqlHost", "graphqlBaseUrl", "loggingLevel", "loggingPath", "secretsBackend", "secretsFilePath", "secretsOpenbaoURL", "secretsOpenbaoToken", "schedulerEnabled", "schedulerMemoryEnabled", "schedulerMemoryInterval", "channelTelegramEnabled", "channelTelegramToken", "channelDiscordEnabled", "channelDiscordToken", "channelWhatsAppEnabled", "channelWhatsAppPhoneId", "channelWhatsAppApiToken", "channelTwilioEnabled", "channelTwilioAccountSid", "channelTwilioAuthToken", "channelTwilioFromNumber", "channelSlackEnabled", "channelSlackBotToken", "channelSlackAppToken", "wizardCompleted"}
+	fieldsInOrder := [...]string{"agentName", "systemPrompt", "provider", "model", "apiKey", "baseURL", "ollamaHost", "ollamaApiKey", "anthropicApiKey", "dockerModelRunnerEndpoint", "dockerModelRunnerModel", "reasoningLevel", "capabilities", "databaseDriver", "databaseDSN", "databaseMaxOpenConns", "databaseMaxIdleConns", "memoryBackend", "memoryFilePath", "memoryNeo4jURI", "memoryNeo4jUser", "memoryNeo4jPassword", "subagentsMaxConcurrent", "subagentsDefaultTimeout", "graphqlEnabled", "graphqlPort", "graphqlHost", "graphqlBaseUrl", "loggingLevel", "loggingPath", "secretsBackend", "secretsFilePath", "secretsOpenbaoURL", "secretsOpenbaoToken", "schedulerEnabled", "schedulerMemoryEnabled", "schedulerMemoryInterval", "channelTelegramEnabled", "channelTelegramToken", "channelDiscordEnabled", "channelDiscordToken", "channelWhatsAppEnabled", "channelWhatsAppPhoneId", "channelWhatsAppApiToken", "channelTwilioEnabled", "channelTwilioAccountSid", "channelTwilioAuthToken", "channelTwilioFromNumber", "channelSlackEnabled", "channelSlackBotToken", "channelSlackAppToken", "channelMattermostEnabled", "channelMattermostServerURL", "channelMattermostBotToken", "wizardCompleted"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -18131,6 +18251,27 @@ func (ec *executionContext) unmarshalInputUpdateConfigInput(ctx context.Context,
 				return it, err
 			}
 			it.ChannelSlackAppToken = data
+		case "channelMattermostEnabled":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelMattermostEnabled"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ChannelMattermostEnabled = data
+		case "channelMattermostServerURL":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelMattermostServerURL"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ChannelMattermostServerURL = data
+		case "channelMattermostBotToken":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("channelMattermostBotToken"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ChannelMattermostBotToken = data
 		case "wizardCompleted":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("wizardCompleted"))
 			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
@@ -18728,6 +18869,12 @@ func (ec *executionContext) _ChannelSecretsConfig(ctx context.Context, sel ast.S
 			out.Values[i] = ec._ChannelSecretsConfig_slackBotToken(ctx, field, obj)
 		case "slackAppToken":
 			out.Values[i] = ec._ChannelSecretsConfig_slackAppToken(ctx, field, obj)
+		case "mattermostEnabled":
+			out.Values[i] = ec._ChannelSecretsConfig_mattermostEnabled(ctx, field, obj)
+		case "mattermostServerURL":
+			out.Values[i] = ec._ChannelSecretsConfig_mattermostServerURL(ctx, field, obj)
+		case "mattermostBotToken":
+			out.Values[i] = ec._ChannelSecretsConfig_mattermostBotToken(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

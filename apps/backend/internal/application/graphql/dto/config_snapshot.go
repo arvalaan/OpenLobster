@@ -84,20 +84,28 @@ func BuildConfigSnapshot(cfg *config.Config, providerNameFn func(*config.Config)
 			}(),
 		},
 		ChannelSecrets: &ChannelSecretsSnapshot{
-			TelegramEnabled:  cfg.Channels.Telegram.Enabled,
-			TelegramToken:    cfg.Channels.Telegram.BotToken,
-			DiscordEnabled:   cfg.Channels.Discord.Enabled,
-			DiscordToken:     cfg.Channels.Discord.BotToken,
-			WhatsAppEnabled:  cfg.Channels.WhatsApp.Enabled,
-			WhatsAppPhoneId:  cfg.Channels.WhatsApp.PhoneID,
-			WhatsAppApiToken: cfg.Channels.WhatsApp.APIToken,
-			TwilioEnabled:    cfg.Channels.Twilio.Enabled,
-			TwilioAccountSid: cfg.Channels.Twilio.AccountSID,
-			TwilioAuthToken:  cfg.Channels.Twilio.AuthToken,
-			TwilioFromNumber: cfg.Channels.Twilio.FromNumber,
-			SlackEnabled:     cfg.Channels.Slack.Enabled,
-			SlackBotToken:    cfg.Channels.Slack.BotToken,
-			SlackAppToken:    cfg.Channels.Slack.AppToken,
+			TelegramEnabled:     cfg.Channels.Telegram.Enabled,
+			TelegramToken:       cfg.Channels.Telegram.BotToken,
+			DiscordEnabled:      cfg.Channels.Discord.Enabled,
+			DiscordToken:        cfg.Channels.Discord.BotToken,
+			WhatsAppEnabled:     cfg.Channels.WhatsApp.Enabled,
+			WhatsAppPhoneId:     cfg.Channels.WhatsApp.PhoneID,
+			WhatsAppApiToken:    cfg.Channels.WhatsApp.APIToken,
+			TwilioEnabled:       cfg.Channels.Twilio.Enabled,
+			TwilioAccountSid:    cfg.Channels.Twilio.AccountSID,
+			TwilioAuthToken:     cfg.Channels.Twilio.AuthToken,
+			TwilioFromNumber:    cfg.Channels.Twilio.FromNumber,
+			SlackEnabled:        cfg.Channels.Slack.Enabled,
+			SlackBotToken:       cfg.Channels.Slack.BotToken,
+			SlackAppToken:       cfg.Channels.Slack.AppToken,
+			MattermostEnabled:   cfg.Channels.Mattermost.Enabled,
+			MattermostServerURL: cfg.Channels.Mattermost.ServerURL,
+			MattermostBotToken: func() string {
+				if len(cfg.Channels.Mattermost.Profiles) > 0 {
+					return cfg.Channels.Mattermost.Profiles[0].BotToken
+				}
+				return ""
+			}(),
 		},
 		WizardCompleted: cfg.Wizard.Completed,
 	}

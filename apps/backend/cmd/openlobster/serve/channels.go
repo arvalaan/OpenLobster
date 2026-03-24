@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/neirth/openlobster/internal/application/graphql/dto"
 	"github.com/neirth/openlobster/internal/domain/models"
@@ -10,21 +11,24 @@ import (
 	domainhandlers "github.com/neirth/openlobster/internal/domain/handlers"
 	msgrouter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/router"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/discord"
+	mattermostadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/mattermost"
 	slackadapter "github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/slack"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/telegram"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/twilio"
 	"github.com/neirth/openlobster/internal/infrastructure/adapters/messaging/whatsapp"
+	"github.com/neirth/openlobster/internal/infrastructure/config"
 	"github.com/spf13/viper"
 )
 
 // channelCaps lists static capabilities per channel type used when reporting
 // channel status to the dashboard after a hot-reload.
 var channelCaps = map[string]dto.ChannelCapabilities{
-	"telegram": {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"discord":  {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"slack":    {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
-	"whatsapp": {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
-	"twilio":   {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"telegram":   {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"discord":    {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"slack":      {HasVoiceMessage: true, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
+	"whatsapp":   {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"twilio":     {HasVoiceMessage: true, HasCallStream: true, HasTextStream: true, HasMediaSupport: true},
+	"mattermost": {HasVoiceMessage: false, HasCallStream: false, HasTextStream: true, HasMediaSupport: true},
 }
 
 // initChannels builds the messaging adapter list from config, populates
@@ -88,21 +92,50 @@ func (a *App) initChannels() {
 		log.Println("channel: twilio — registered OK")
 	}
 
+	// Mattermost: multi-profile — each profile gets its own adapter and registry key.
+	if !cfg.Channels.Mattermost.Enabled {
+		log.Println("channel: mattermost — disabled (skipping)")
+	} else if len(cfg.Channels.Mattermost.Profiles) == 0 {
+		log.Println("channel: mattermost — no profiles configured (skipping)")
+	} else {
+		mmSR := mattermostadapter.NewStickyRouter()
+		seenKeys := make(map[string]bool)
+		for _, profile := range cfg.Channels.Mattermost.Profiles {
+			p := profile
+			ad, err := mattermostadapter.NewAdapter(cfg.Channels.Mattermost.ServerURL, p, mmSR)
+			if err != nil {
+				log.Printf("channel: mattermost[%s] — failed to initialize: %v", p.Name, err)
+				continue
+			}
+			key := ad.ChannelType()
+			if seenKeys[key] {
+				log.Printf("channel: mattermost[%s] — duplicate profile key %q (skipping)", p.Name, key)
+				continue
+			}
+			seenKeys[key] = true
+			a.MessagingAdapters = append(a.MessagingAdapters, ad)
+			a.MattermostProfileKeys = append(a.MattermostProfileKeys, key)
+			log.Printf("channel: mattermost[%s] — registered OK", p.Name)
+		}
+	}
+
 	log.Printf("channels: %d adapter(s) active", len(a.MessagingAdapters))
 
 	a.ChanReg = msgrouter.New()
 	for _, adapter := range a.MessagingAdapters {
-		switch adapter.(type) {
+		switch ad := adapter.(type) {
 		case *telegram.Adapter:
-			a.ChanReg.Set("telegram", adapter)
+			a.ChanReg.Set("telegram", ad)
 		case *discord.Adapter:
-			a.ChanReg.Set("discord", adapter)
+			a.ChanReg.Set("discord", ad)
 		case *slackadapter.Adapter:
-			a.ChanReg.Set("slack", adapter)
+			a.ChanReg.Set("slack", ad)
 		case *whatsapp.Adapter:
-			a.ChanReg.Set("whatsapp", adapter)
+			a.ChanReg.Set("whatsapp", ad)
 		case *twilio.Adapter:
-			a.ChanReg.Set("twilio", adapter)
+			a.ChanReg.Set("twilio", ad)
+		case *mattermostadapter.Adapter:
+			a.ChanReg.Set(ad.ChannelType(), ad)
 		}
 	}
 
@@ -142,6 +175,15 @@ func (a *App) rebuildActiveChannels() []dto.ChannelStatus {
 			list = append(list, dto.ChannelStatus{
 				ID: t, Name: t, Type: t, Status: "online",
 				Enabled: true, Capabilities: channelCaps[t],
+			})
+		}
+	}
+	for _, key := range a.MattermostProfileKeys {
+		if a.ChanReg.Get(key) != nil {
+			name := strings.TrimPrefix(key, "mattermost:")
+			list = append(list, dto.ChannelStatus{
+				ID: key, Name: "Mattermost: " + name, Type: "mattermost", Status: "online",
+				Enabled: true, Capabilities: channelCaps["mattermost"],
 			})
 		}
 	}
@@ -201,6 +243,12 @@ func (a *App) reloadChannel(channelType string) {
 			if sid != "" && tok != "" && from != "" {
 				newAdapter = twilio.NewAdapter(sid, tok, from)
 			}
+		case "mattermost":
+			a.reloadMattermost()
+			if a.HTTPHandler != nil {
+				a.HTTPHandler.UpdateAgentChannels(a.rebuildActiveChannels())
+			}
+			return
 		}
 	}
 
@@ -237,5 +285,71 @@ func (a *App) reloadChannel(channelType string) {
 
 	if a.HTTPHandler != nil {
 		a.HTTPHandler.UpdateAgentChannels(a.rebuildActiveChannels())
+	}
+}
+
+// reloadMattermost tears down all existing Mattermost adapters and recreates
+// them from the current viper config. Mattermost is multi-profile, so a single
+// reload replaces all profile adapters at once.
+func (a *App) reloadMattermost() {
+	// Stop and remove all existing Mattermost adapters.
+	for _, key := range a.MattermostProfileKeys {
+		if existing := a.ChanReg.Get(key); existing != nil {
+			if mm, ok := existing.(*mattermostadapter.Adapter); ok {
+				mm.Stop()
+			}
+		}
+		a.ChanReg.Remove(key)
+	}
+	a.MattermostProfileKeys = nil
+
+	enabled := viper.GetBool("channels.mattermost.enabled")
+	if !enabled {
+		log.Println("channel: mattermost — deactivated (disabled)")
+		return
+	}
+
+	serverURL := viper.GetString("channels.mattermost.server_url")
+	if serverURL == "" {
+		log.Println("channel: mattermost — deactivated (no server_url)")
+		return
+	}
+
+	// Unmarshal profiles from viper.
+	var mmCfg config.MattermostConfig
+	if sub := viper.Sub("channels.mattermost"); sub != nil {
+		_ = sub.Unmarshal(&mmCfg)
+	}
+	if len(mmCfg.Profiles) == 0 {
+		log.Println("channel: mattermost — deactivated (no profiles)")
+		return
+	}
+
+	sr := mattermostadapter.NewStickyRouter()
+	seenKeys := make(map[string]bool)
+	for _, profile := range mmCfg.Profiles {
+		p := profile
+		ad, err := mattermostadapter.NewAdapter(serverURL, p, sr)
+		if err != nil {
+			log.Printf("channel: mattermost[%s] — reload failed: %v", p.Name, err)
+			continue
+		}
+		key := ad.ChannelType()
+		if seenKeys[key] {
+			log.Printf("channel: mattermost[%s] — duplicate profile key %q (skipping)", p.Name, key)
+			continue
+		}
+		seenKeys[key] = true
+		a.ChanReg.Set(key, ad)
+		a.MattermostProfileKeys = append(a.MattermostProfileKeys, key)
+		if a.ChannelStartCtx != nil {
+			ct := key
+			go func() {
+				if err := ad.Start(a.ChannelStartCtx, a.makeChannelMsgHandler(ct)); err != nil {
+					log.Printf("channel: mattermost[%s] — listener failed (hot): %v", p.Name, err)
+				}
+			}()
+		}
+		log.Printf("channel: mattermost[%s] — reloaded OK (hot)", p.Name)
 	}
 }

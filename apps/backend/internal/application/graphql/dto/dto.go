@@ -312,18 +312,21 @@ type ChannelConfigSnapshot struct {
 }
 
 type ChannelSecretsSnapshot struct {
-	TelegramEnabled  bool
-	TelegramToken    string
-	DiscordEnabled   bool
-	DiscordToken     string
-	WhatsAppEnabled  bool
-	WhatsAppPhoneId  string
-	WhatsAppApiToken string
-	TwilioEnabled    bool
-	TwilioAccountSid string
-	TwilioAuthToken  string
-	TwilioFromNumber string
-	SlackEnabled     bool
-	SlackBotToken    string
-	SlackAppToken    string
+	TelegramEnabled     bool
+	TelegramToken       string
+	DiscordEnabled      bool
+	DiscordToken        string
+	WhatsAppEnabled     bool
+	WhatsAppPhoneId     string
+	WhatsAppApiToken    string
+	TwilioEnabled       bool
+	TwilioAccountSid    string
+	TwilioAuthToken     string
+	TwilioFromNumber    string
+	SlackEnabled        bool
+	SlackBotToken       string
+	SlackAppToken       string
+	MattermostEnabled   bool
+	MattermostServerURL string
+	MattermostBotToken  string
 }
