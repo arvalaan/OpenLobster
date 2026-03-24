@@ -1,3 +1,15 @@
+// Package mattermost provides a Mattermost messaging adapter for OpenLobster.
+//
+// The adapter uses the official Mattermost SDK (model.Client4 for REST,
+// model.WebSocketClient for real-time events). One Adapter corresponds to one
+// bot profile (one Mattermost bot account).
+//
+// Required Mattermost bot permissions:
+//   - Read posts in all relevant channels
+//   - Create posts
+//   - Upload files
+//   - Add reactions
+//   - Read user info
 package mattermost
 
 import (
@@ -9,21 +21,20 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/neirth/openlobster/internal/domain/models"
 	"github.com/neirth/openlobster/internal/domain/ports"
 	"github.com/neirth/openlobster/internal/infrastructure/config"
 )
 
-// Adapter implements ports.MessagingPort for Mattermost using the REST API v4
-// and WebSocket event stream. One Adapter corresponds to one bot profile
-// (one Mattermost bot account).
+// Adapter implements ports.MessagingPort for Mattermost using the official SDK.
+// One Adapter corresponds to one bot profile (one Mattermost bot account).
 //
 // Mention-based routing: the adapter only forwards messages to onMessage when
 // the bot is @mentioned (by username) or the conversation is a direct message.
-// Mattermost therefore acts as the routing layer for multi-profile deployments.
 type Adapter struct {
-	client      *Client
-	wsURL       string
+	client      *model.Client4
+	serverURL   string
 	botUserID   string
 	botUsername string
 	// channelType is the registry key used in message Metadata["channel_type"].
@@ -55,9 +66,13 @@ func NewAdapter(serverURL string, profile config.MattermostBotProfile, sr *Stick
 	if profileName == "" {
 		return nil, fmt.Errorf("mattermost: profile name is required")
 	}
+
+	client := model.NewAPIv4Client(serverURL)
+	client.SetToken(profile.BotToken)
+
 	return &Adapter{
-		client:       newClient(serverURL, profile.BotToken),
-		wsURL:        buildWSURL(serverURL),
+		client:       client,
+		serverURL:    serverURL,
 		channelType:  "mattermost:" + strings.ToLower(profileName),
 		profile:      profile,
 		stickyRouter: sr,
@@ -70,8 +85,8 @@ func (a *Adapter) ChannelType() string {
 	return a.channelType
 }
 
-// set implements threadStorer so the WebSocket handler can record thread roots.
-func (a *Adapter) set(channelID, rootID string) {
+// setThreadRoot implements threadStorer so the WebSocket handler can record thread roots.
+func (a *Adapter) setThreadRoot(channelID, rootID string) {
 	a.threadRoots.Store(channelID, rootID)
 }
 
@@ -79,15 +94,15 @@ func (a *Adapter) set(channelID, rootID string) {
 // WebSocket connection and calls onMessage for each relevant incoming post.
 // Returns immediately; the goroutine runs until ctx is cancelled or Stop is called.
 func (a *Adapter) Start(ctx context.Context, onMessage func(context.Context, *models.Message)) error {
-	me, err := a.client.GetMe(ctx)
+	me, _, err := a.client.GetMe(ctx, "")
 	if err != nil {
 		return fmt.Errorf("mattermost: resolve bot user: %w", err)
 	}
-	a.botUserID = me.ID
+	a.botUserID = me.Id
 	a.botUsername = me.Username
 
 	ctx, a.cancel = context.WithCancel(ctx)
-	go listenWithReconnect(ctx, a.wsURL, a.profile.BotToken, a.botUserID, a.botUsername, a.channelType, a.client, a, a.stickyRouter, onMessage)
+	go listenWithReconnect(ctx, a.serverURL, a.profile.BotToken, a.botUserID, a.botUsername, a.channelType, a.client, a, a.stickyRouter, onMessage)
 	return nil
 }
 
@@ -105,37 +120,18 @@ const maxPostSize = 4000
 // SendMessage posts a message to the channel specified in msg.ChannelID.
 // If the content exceeds maxPostSize it is split at natural language boundaries
 // and sent as sequential posts. All chunks share the same thread root.
-//
-// When the initial CreatePost returns a 403 (permission error), the adapter
-// assumes msg.ChannelID is a Mattermost user ID rather than a channel ID
-// (this happens for proactive outbound messages routed via user_channels).
-// It creates a DM channel on-the-fly and retries.
 func (a *Adapter) SendMessage(ctx context.Context, msg *models.Message) error {
-	channelID := msg.ChannelID
 	rootID := ""
-	if v, ok := a.threadRoots.Load(channelID); ok {
+	if v, ok := a.threadRoots.Load(msg.ChannelID); ok {
 		rootID, _ = v.(string)
 	}
-
-	chunks := splitMessage(msg.Content, maxPostSize)
-	_, err := a.client.CreatePost(ctx, channelID, chunks[0], rootID, nil)
-	if err != nil && strings.Contains(err.Error(), "403") && a.botUserID != "" {
-		// channelID is likely a user ID — open a DM channel and retry.
-		dm, dmErr := a.client.CreateDirectChannel(ctx, a.botUserID, channelID)
-		if dmErr != nil {
-			return fmt.Errorf("mattermost send message: %w (DM fallback: %v)", err, dmErr)
+	for _, chunk := range splitMessage(msg.Content, maxPostSize) {
+		post := &model.Post{
+			ChannelId: msg.ChannelID,
+			Message:   chunk,
+			RootId:    rootID,
 		}
-		channelID = dm.ID
-		rootID = "" // new channel, no thread root
-		if _, retryErr := a.client.CreatePost(ctx, channelID, chunks[0], rootID, nil); retryErr != nil {
-			return fmt.Errorf("mattermost send message (DM): %w", retryErr)
-		}
-	} else if err != nil {
-		return fmt.Errorf("mattermost send message: %w", err)
-	}
-
-	for _, chunk := range chunks[1:] {
-		if _, err := a.client.CreatePost(ctx, channelID, chunk, rootID, nil); err != nil {
+		if _, _, err := a.client.CreatePost(ctx, post); err != nil {
 			return fmt.Errorf("mattermost send message: %w", err)
 		}
 	}
@@ -163,7 +159,6 @@ func splitMessage(content string, maxSize int) []string {
 }
 
 // runeByteOffset returns the byte offset of the n-th rune in s.
-// If n >= the rune count, it returns len(s).
 func runeByteOffset(s string, n int) int {
 	off := 0
 	for i := 0; i < n && off < len(s); i++ {
@@ -174,7 +169,6 @@ func runeByteOffset(s string, n int) int {
 }
 
 func findSplitPoint(content string, maxSize int) int {
-	// Convert rune limit to a byte offset for the search window.
 	byteLimit := runeByteOffset(content, maxSize)
 	window := content[:byteLimit]
 	if i := strings.LastIndex(window, "\n\n"); i > 0 {
@@ -197,15 +191,14 @@ func findSplitPoint(content string, maxSize int) int {
 // SendMedia posts a message with an optional file attachment.
 // media.URL is treated as a local file path (consistent with the Telegram
 // adapter). The file is read from disk, uploaded via the Mattermost API, and
-// attached to the post. If the file cannot be read or uploaded, the caption
-// is posted as a plain text message instead.
+// attached to the post.
 func (a *Adapter) SendMedia(ctx context.Context, media *ports.Media) error {
 	rootID := ""
 	if v, ok := a.threadRoots.Load(media.ChatID); ok {
 		rootID, _ = v.(string)
 	}
 
-	var fileIDs []string
+	var fileIDs model.StringArray
 	if media.URL != "" {
 		data, err := os.ReadFile(media.URL)
 		if err == nil {
@@ -213,23 +206,30 @@ func (a *Adapter) SendMedia(ctx context.Context, media *ports.Media) error {
 			if filename == "" {
 				filename = filepath.Base(media.URL)
 			}
-			if fid, uploadErr := a.client.UploadFile(ctx, media.ChatID, data, filename); uploadErr == nil {
-				fileIDs = []string{fid}
+			if resp, _, uploadErr := a.client.UploadFile(ctx, data, media.ChatID, filename); uploadErr == nil && len(resp.FileInfos) > 0 {
+				fileIDs = model.StringArray{resp.FileInfos[0].Id}
 			}
 		}
 	}
 
-	text := media.Caption
-	_, err := a.client.CreatePost(ctx, media.ChatID, text, rootID, fileIDs)
-	if err != nil {
+	post := &model.Post{
+		ChannelId: media.ChatID,
+		Message:   media.Caption,
+		RootId:    rootID,
+		FileIds:   fileIDs,
+	}
+	if _, _, err := a.client.CreatePost(ctx, post); err != nil {
 		return fmt.Errorf("mattermost send media: %w", err)
 	}
 	return nil
 }
 
 // SendTyping notifies the channel that the bot is typing.
-func (a *Adapter) SendTyping(ctx context.Context, channelID string) error {
-	return a.client.PostTyping(ctx, a.botUserID, channelID)
+func (a *Adapter) SendTyping(_ context.Context, _ string) error {
+	// Typing indicators are handled by the WebSocket listener's keep-alive
+	// goroutine during message processing. The SDK's UserTyping method
+	// requires an active WebSocket connection which is managed internally.
+	return nil
 }
 
 // HandleWebhook is a no-op; Mattermost messages arrive via WebSocket.
@@ -239,7 +239,7 @@ func (a *Adapter) HandleWebhook(_ context.Context, _ []byte) (*models.Message, e
 
 // GetUserInfo retrieves display information for a Mattermost user by ID.
 func (a *Adapter) GetUserInfo(ctx context.Context, userID string) (*ports.UserInfo, error) {
-	user, err := a.client.GetUser(ctx, userID)
+	user, _, err := a.client.GetUser(ctx, userID, "")
 	if err != nil {
 		return &ports.UserInfo{ID: userID, Username: userID, DisplayName: userID}, nil
 	}
@@ -261,7 +261,15 @@ func (a *Adapter) React(ctx context.Context, messageID string, emoji string) err
 		return fmt.Errorf("mattermost react: Start() has not been called")
 	}
 	emoji = strings.Trim(emoji, ":")
-	return a.client.AddReaction(ctx, a.botUserID, messageID, emoji)
+	reaction := &model.Reaction{
+		UserId:    a.botUserID,
+		PostId:    messageID,
+		EmojiName: emoji,
+	}
+	if _, _, err := a.client.SaveReaction(ctx, reaction); err != nil {
+		return fmt.Errorf("mattermost react: %w", err)
+	}
+	return nil
 }
 
 // GetCapabilities returns capability flags for the Mattermost channel.

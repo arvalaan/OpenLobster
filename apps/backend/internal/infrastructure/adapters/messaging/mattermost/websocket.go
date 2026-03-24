@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/neirth/openlobster/internal/domain/models"
 )
 
@@ -18,23 +18,15 @@ import (
 // downloaded into memory. Larger attachments are recorded as metadata-only.
 const maxAttachmentBytes int64 = 25 * 1024 * 1024 // 25 MiB
 
-// wsEvent is the envelope for all Mattermost WebSocket events.
-type wsEvent struct {
-	Event    string                 `json:"event"`
-	Data     map[string]interface{} `json:"data"`
-	Seq      int64                  `json:"seq"`
-	SeqReply int64                  `json:"seq_reply"`
-}
-
 // buildWSURL converts an HTTP(S) server URL to the WebSocket endpoint.
 func buildWSURL(serverURL string) string {
 	if strings.HasPrefix(serverURL, "https://") {
-		return "wss://" + serverURL[len("https://"):] + "/api/v4/websocket"
+		return "wss://" + serverURL[len("https://"):]
 	}
 	if strings.HasPrefix(serverURL, "http://") {
-		return "ws://" + serverURL[len("http://"):] + "/api/v4/websocket"
+		return "ws://" + serverURL[len("http://"):]
 	}
-	return "wss://" + serverURL + "/api/v4/websocket"
+	return "wss://" + serverURL
 }
 
 // listenWithReconnect connects to the Mattermost WebSocket and calls onMessage
@@ -42,10 +34,10 @@ func buildWSURL(serverURL string) string {
 // backoff until ctx is cancelled.
 func listenWithReconnect(
 	ctx context.Context,
-	wsURL, token string,
+	serverURL, token string,
 	botUserID, botUsername, channelType string,
-	client *Client,
-	threadStore threadStorer,
+	apiClient *model.Client4,
+	adapter *Adapter,
 	sr *StickyRouter,
 	onMessage func(context.Context, *models.Message),
 ) {
@@ -56,9 +48,8 @@ func listenWithReconnect(
 		if ctx.Err() != nil {
 			return
 		}
-		connected, err := connectAndListen(ctx, wsURL, token, botUserID, botUsername, channelType, client, threadStore, sr, onMessage)
+		connected, err := connectAndListen(ctx, serverURL, token, botUserID, botUsername, channelType, apiClient, adapter, sr, onMessage)
 		if connected {
-			// Connection was established, so reset backoff for next retry.
 			backoff = time.Second
 		}
 		if err != nil && ctx.Err() == nil {
@@ -78,86 +69,69 @@ func listenWithReconnect(
 
 func connectAndListen(
 	ctx context.Context,
-	wsURL, token string,
+	serverURL, token string,
 	botUserID, botUsername, channelType string,
-	client *Client,
-	threadStore threadStorer,
+	apiClient *model.Client4,
+	adapter *Adapter,
 	sr *StickyRouter,
 	onMessage func(context.Context, *models.Message),
 ) (connected bool, err error) {
-	dialer := websocket.DefaultDialer
-	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
-	if err != nil {
-		return false, fmt.Errorf("dial: %w", err)
+	wsURL := buildWSURL(serverURL)
+	wsClient, appErr := model.NewWebSocketClient4(wsURL, token)
+	if appErr != nil {
+		return false, appErr
 	}
-	defer conn.Close()
+	defer wsClient.Close()
 
-	// Authenticate with the bot token.
-	auth := map[string]interface{}{
-		"seq":    1,
-		"action": "authentication_challenge",
-		"data":   map[string]string{"token": token},
-	}
-	if err := conn.WriteJSON(auth); err != nil {
-		return false, fmt.Errorf("auth: %w", err)
-	}
-
+	wsClient.Listen()
 	connected = true
 
-	// Close the connection when the context is cancelled.
-	done := make(chan struct{})
-	go func() {
+	for {
 		select {
 		case <-ctx.Done():
-			conn.Close()
-		case <-done:
-		}
-	}()
-	defer close(done)
-
-	for {
-		_, msgBytes, err := conn.ReadMessage()
-		if err != nil {
-			if ctx.Err() != nil {
+			return true, nil
+		case event, ok := <-wsClient.EventChannel:
+			if !ok {
+				if wsClient.ListenError != nil {
+					return true, wsClient.ListenError
+				}
 				return true, nil
 			}
-			return true, fmt.Errorf("read: %w", err)
-		}
-
-		var evt wsEvent
-		if err := json.Unmarshal(msgBytes, &evt); err != nil {
-			continue
-		}
-
-		if evt.Event == "posted" {
-			handlePostedEvent(ctx, evt, botUserID, botUsername, channelType, client, threadStore, sr, onMessage)
+			if event == nil {
+				continue
+			}
+			if event.EventType() == model.WebsocketEventPosted {
+				handlePostedEvent(ctx, event, botUserID, botUsername, channelType, apiClient, adapter, sr, onMessage)
+			}
+		case <-wsClient.PingTimeoutChannel:
+			return true, fmt.Errorf("ping timeout")
 		}
 	}
 }
 
 // handlePostedEvent processes a single "posted" WebSocket event.
-// It is exported for testing purposes.
 func handlePostedEvent(
 	ctx context.Context,
-	evt wsEvent,
+	event *model.WebSocketEvent,
 	botUserID, botUsername, channelType string,
-	client *Client,
-	threadStore threadStorer,
+	apiClient *model.Client4,
+	adapter *Adapter,
 	sr *StickyRouter,
 	onMessage func(context.Context, *models.Message),
 ) {
-	postJSON, _ := evt.Data["post"].(string)
+	data := event.GetData()
+	postJSON, _ := data["post"].(string)
 	if postJSON == "" {
 		return
 	}
 
-	var post mmPost
+	var post model.Post
 	if err := json.Unmarshal([]byte(postJSON), &post); err != nil {
 		return
 	}
 
 	// Self-echo filter: ignore events posted by this bot.
-	if post.UserID == botUserID {
+	if post.UserId == botUserID {
 		return
 	}
 
@@ -167,35 +141,32 @@ func handlePostedEvent(
 	}
 
 	// Determine channel type: "D" = direct message.
-	// Fall back to a REST lookup when the event field is missing (some Mattermost versions omit it).
-	chType, _ := evt.Data["channel_type"].(string)
+	chType, _ := data["channel_type"].(string)
 	if chType == "" {
-		if ch, err := client.GetChannel(ctx, post.ChannelID); err == nil {
-			chType = ch.Type
+		if ch, _, err := apiClient.GetChannel(ctx, post.ChannelId); err == nil {
+			chType = string(ch.Type)
 		}
 	}
-	isDM := chType == "D"
+	isDM := chType == string(model.ChannelTypeDirect)
 
 	// @mention filter: only process if the bot is @mentioned, it's a DM, or the
 	// user has a live sticky routing entry pointing at this adapter.
-	// Use word-boundary matching to avoid "@research" matching "@researcher".
 	mentionRe := regexp.MustCompile(`(?:^|\s)@` + regexp.QuoteMeta(botUsername) + `\b`)
 	isMentioned := mentionRe.MatchString(post.Message)
 	isSticky := false
 	if !isDM && !isMentioned {
-		if sr == nil || sr.Get(post.ChannelID, post.UserID) != channelType {
+		if sr == nil || sr.Get(post.ChannelId, post.UserId) != channelType {
 			return
 		}
 		isSticky = true
 	}
-	// When explicitly mentioned, (re)set sticky so TTL refreshes.
 	if isMentioned && sr != nil {
-		sr.Set(post.ChannelID, post.UserID, channelType)
+		sr.Set(post.ChannelId, post.UserId, channelType)
 	}
 
 	// Resolve sender display name.
-	senderName := post.UserID
-	if user, err := client.GetUser(ctx, post.UserID); err == nil {
+	senderName := post.UserId
+	if user, _, err := apiClient.GetUser(ctx, post.UserId, ""); err == nil {
 		if user.Nickname != "" {
 			senderName = user.Nickname
 		} else if user.Username != "" {
@@ -206,7 +177,7 @@ func handlePostedEvent(
 	// Resolve group name for non-DM channels.
 	groupName := ""
 	if !isDM {
-		if ch, err := client.GetChannel(ctx, post.ChannelID); err == nil {
+		if ch, _, err := apiClient.GetChannel(ctx, post.ChannelId); err == nil {
 			groupName = ch.DisplayName
 			if groupName == "" {
 				groupName = ch.Name
@@ -220,8 +191,8 @@ func handlePostedEvent(
 
 	// Resolve file attachments.
 	var attachments []models.Attachment
-	for _, fid := range post.FileIDs {
-		fi, err := client.GetFileInfo(ctx, fid)
+	for _, fid := range post.FileIds {
+		fi, _, err := apiClient.GetFileInfo(ctx, fid)
 		if err != nil {
 			continue
 		}
@@ -237,28 +208,26 @@ func handlePostedEvent(
 		} else if strings.HasPrefix(mimeType, "video/") {
 			attType = "video"
 		}
-		var data []byte
+		var fileData []byte
 		if fi.Size <= maxAttachmentBytes {
-			data, _ = client.GetFileContent(ctx, fid)
+			fileData, _, _ = apiClient.GetFile(ctx, fid)
 		}
 		attachments = append(attachments, models.Attachment{
 			Type:     attType,
 			Filename: fi.Name,
 			Size:     fi.Size,
 			MIMEType: mimeType,
-			Data:     data,
+			Data:     fileData,
 		})
 	}
 
 	// Update thread store so outbound replies stay in the same thread.
-	// For top-level posts (RootID == ""), store empty string so SendMessage
-	// produces a plain inline reply rather than forcing a new thread.
-	threadStore.set(post.ChannelID, post.RootID)
+	adapter.setThreadRoot(post.ChannelId, post.RootId)
 
 	msg := &models.Message{
 		ID:          uuid.New(),
-		ChannelID:   post.ChannelID,
-		SenderID:    post.UserID,
+		ChannelID:   post.ChannelId,
+		SenderID:    post.UserId,
 		SenderName:  senderName,
 		IsGroup:     !isDM,
 		IsMentioned: isMentioned || isSticky,
@@ -268,8 +237,8 @@ func handlePostedEvent(
 		Attachments: attachments,
 		Metadata: map[string]interface{}{
 			"channel_type":       channelType,
-			"mattermost_post_id": post.ID,
-			"mattermost_root_id": post.RootID,
+			"mattermost_post_id": post.Id,
+			"mattermost_root_id": post.RootId,
 		},
 	}
 
@@ -279,11 +248,12 @@ func handlePostedEvent(
 	go func() {
 		ticker := time.NewTicker(4 * time.Second)
 		defer ticker.Stop()
-		_ = client.PostTyping(ctx, botUserID, post.ChannelID)
+		// Use REST for typing since the WS client is shared and SendMessage isn't thread-safe.
+		postTypingREST(ctx, apiClient, botUserID, post.ChannelId)
 		for {
 			select {
 			case <-ticker.C:
-				_ = client.PostTyping(ctx, botUserID, post.ChannelID)
+				postTypingREST(ctx, apiClient, botUserID, post.ChannelId)
 			case <-typingDone:
 				return
 			case <-ctx.Done():
@@ -295,8 +265,11 @@ func handlePostedEvent(
 	close(typingDone)
 }
 
-// threadStorer allows the WebSocket handler to record thread root IDs without
-// coupling it to the full Adapter struct (useful in tests).
-type threadStorer interface {
-	set(channelID, rootID string)
+// postTypingREST sends a typing indicator via the REST API.
+func postTypingREST(ctx context.Context, client *model.Client4, userID, channelID string) {
+	body := map[string]string{"channel_id": channelID}
+	resp, _ := client.DoAPIPostJSON(ctx, "/users/"+userID+"/typing", body)
+	if resp != nil {
+		resp.Body.Close()
+	}
 }

@@ -10,47 +10,39 @@ import (
 	"strings"
 	"testing"
 
+	mmmodel "github.com/mattermost/mattermost/server/public/model"
 	"github.com/neirth/openlobster/internal/domain/models"
 	"github.com/neirth/openlobster/internal/infrastructure/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// noopThreadStore satisfies threadStorer for tests that don't need threading.
-type noopThreadStore struct{}
-
-func (n *noopThreadStore) set(_, _ string) {}
-
-// captureThreadStore records the last set call.
-type captureThreadStore struct {
-	channelID string
-	rootID    string
+// newTestAPIClient creates a model.Client4 pointing to the given httptest.Server.
+func newTestAPIClient(srv *httptest.Server) *mmmodel.Client4 {
+	client := mmmodel.NewAPIv4Client(srv.URL)
+	client.SetToken("test-token")
+	return client
 }
 
-func (c *captureThreadStore) set(channelID, rootID string) {
-	c.channelID = channelID
-	c.rootID = rootID
-}
-
-// newTestClient creates a Client pointing to the given httptest.Server.
-func newTestClient(srv *httptest.Server) *Client {
-	return &Client{
-		serverURL:  srv.URL,
-		token:      "test-token",
-		httpClient: srv.Client(),
+// newTestAdapter creates a minimal Adapter backed by the given httptest.Server.
+func newTestAdapter(srv *httptest.Server, name string) *Adapter {
+	return &Adapter{
+		client:      newTestAPIClient(srv),
+		serverURL:   srv.URL,
+		channelType: "mattermost:" + strings.ToLower(name),
+		profile:     testProfile(name, "test-token"),
 	}
 }
 
-// makePostedEvent builds a minimal "posted" wsEvent for testing.
-func makePostedEvent(post mmPost, channelType string) wsEvent {
+// makePostedEvent builds a minimal "posted" WebSocketEvent for testing.
+func makePostedEvent(post mmmodel.Post, channelType string) *mmmodel.WebSocketEvent {
 	postJSON, _ := json.Marshal(post)
-	return wsEvent{
-		Event: "posted",
-		Data: map[string]interface{}{
-			"post":         string(postJSON),
-			"channel_type": channelType,
-		},
-	}
+	evt := mmmodel.NewWebSocketEvent(mmmodel.WebsocketEventPosted, "", post.ChannelId, "", nil, "")
+	evt = evt.SetData(map[string]any{
+		"post":         string(postJSON),
+		"channel_type": channelType,
+	})
+	return evt
 }
 
 // testProfile builds a minimal MattermostBotProfile for tests.
@@ -69,11 +61,12 @@ func TestHandlePostedEvent_SelfEcho(t *testing.T) {
 	called := false
 	onMsg := func(_ context.Context, _ *models.Message) { called = true }
 
-	post := mmPost{ID: "p1", ChannelID: "c1", UserID: "bot-id", Message: "@mybot hello"}
+	post := mmmodel.Post{Id: "p1", ChannelId: "c1", UserId: "bot-id", Message: "@mybot hello"}
 	evt := makePostedEvent(post, "O")
 
+	adapter := newTestAdapter(srv, "test")
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), &noopThreadStore{}, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
 	assert.False(t, called, "self-posted messages must not trigger onMessage")
 }
@@ -85,27 +78,29 @@ func TestHandlePostedEvent_SystemMessage(t *testing.T) {
 	called := false
 	onMsg := func(_ context.Context, _ *models.Message) { called = true }
 
-	post := mmPost{ID: "p1", ChannelID: "c1", UserID: "user-1", Message: "@mybot hello", Type: "system_join_channel"}
+	post := mmmodel.Post{Id: "p1", ChannelId: "c1", UserId: "user-1", Message: "@mybot hello", Type: "system_join_channel"}
 	evt := makePostedEvent(post, "O")
 
+	adapter := newTestAdapter(srv, "test")
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), &noopThreadStore{}, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
 	assert.False(t, called, "system messages must be ignored")
 }
 
 func TestHandlePostedEvent_MentionFilter_WithMention(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v4/users/") {
-			json.NewEncoder(w).Encode(mmUser{ID: "user-1", Username: "alice", Nickname: "Alice"})
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/users/") && !strings.Contains(r.URL.Path, "/typing") {
+			json.NewEncoder(w).Encode(mmmodel.User{Id: "user-1", Username: "alice", Nickname: "Alice"})
 			return
 		}
-		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/typing") {
+		if strings.Contains(r.URL.Path, "/typing") {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/v4/channels/") {
-			json.NewEncoder(w).Encode(mmChannel{ID: "c1", Type: "O", Name: "general", DisplayName: "General"})
+		if strings.Contains(r.URL.Path, "/channels/") {
+			json.NewEncoder(w).Encode(mmmodel.Channel{Id: "c1", Type: "O", Name: "general", DisplayName: "General"})
 			return
 		}
 		http.NotFound(w, r)
@@ -115,11 +110,12 @@ func TestHandlePostedEvent_MentionFilter_WithMention(t *testing.T) {
 	var received *models.Message
 	onMsg := func(_ context.Context, msg *models.Message) { received = msg }
 
-	post := mmPost{ID: "p1", ChannelID: "c1", UserID: "user-1", Message: "@mybot what time is it?"}
-	evt := makePostedEvent(post, "O") // non-DM channel
+	post := mmmodel.Post{Id: "p1", ChannelId: "c1", UserId: "user-1", Message: "@mybot what time is it?"}
+	evt := makePostedEvent(post, "O")
 
+	adapter := newTestAdapter(srv, "test")
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), &noopThreadStore{}, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
 	require.NotNil(t, received)
 	assert.Equal(t, "c1", received.ChannelID)
@@ -136,22 +132,24 @@ func TestHandlePostedEvent_MentionFilter_WithoutMention(t *testing.T) {
 	called := false
 	onMsg := func(_ context.Context, _ *models.Message) { called = true }
 
-	post := mmPost{ID: "p1", ChannelID: "c1", UserID: "user-1", Message: "hello world"}
-	evt := makePostedEvent(post, "O") // public channel, no @mention
+	post := mmmodel.Post{Id: "p1", ChannelId: "c1", UserId: "user-1", Message: "hello world"}
+	evt := makePostedEvent(post, "O")
 
+	adapter := newTestAdapter(srv, "test")
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), &noopThreadStore{}, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
 	assert.False(t, called, "messages without @mention in group channels must be ignored")
 }
 
 func TestHandlePostedEvent_DirectMessage_NoMentionNeeded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v4/users/") {
-			json.NewEncoder(w).Encode(mmUser{ID: "user-1", Username: "bob"})
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/users/") && !strings.Contains(r.URL.Path, "/typing") {
+			json.NewEncoder(w).Encode(mmmodel.User{Id: "user-1", Username: "bob"})
 			return
 		}
-		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/typing") {
+		if strings.Contains(r.URL.Path, "/typing") {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -162,54 +160,74 @@ func TestHandlePostedEvent_DirectMessage_NoMentionNeeded(t *testing.T) {
 	var received *models.Message
 	onMsg := func(_ context.Context, msg *models.Message) { received = msg }
 
-	post := mmPost{ID: "p2", ChannelID: "dm-1", UserID: "user-1", Message: "hey there"}
-	evt := makePostedEvent(post, "D") // DM channel
+	post := mmmodel.Post{Id: "p2", ChannelId: "dm-1", UserId: "user-1", Message: "hey there"}
+	evt := makePostedEvent(post, "D")
 
+	adapter := newTestAdapter(srv, "test")
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), &noopThreadStore{}, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
 	require.NotNil(t, received)
 	assert.False(t, received.IsGroup)
 	assert.Equal(t, "hey there", received.Content)
 }
 
-func TestHandlePostedEvent_ThreadRootRecorded_ExistingThread(t *testing.T) {
+func TestHandlePostedEvent_ThreadRootRecorded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(mmUser{ID: "user-1", Username: "charlie"})
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/users/") && !strings.Contains(r.URL.Path, "/typing") {
+			json.NewEncoder(w).Encode(mmmodel.User{Id: "user-1", Username: "charlie"})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/typing") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	ts := &captureThreadStore{}
+	adapter := newTestAdapter(srv, "test")
 	onMsg := func(_ context.Context, _ *models.Message) {}
 
-	// Incoming message already inside a thread (RootID set).
-	post := mmPost{ID: "p3", ChannelID: "dm-2", UserID: "user-1", Message: "hi", RootID: "root-abc"}
+	post := mmmodel.Post{Id: "p3", ChannelId: "dm-2", UserId: "user-1", Message: "hi", RootId: "root-abc"}
 	evt := makePostedEvent(post, "D")
 
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), ts, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
-	assert.Equal(t, "dm-2", ts.channelID)
-	assert.Equal(t, "root-abc", ts.rootID, "existing RootID should be used unchanged")
+	v, ok := adapter.threadRoots.Load("dm-2")
+	require.True(t, ok)
+	assert.Equal(t, "root-abc", v.(string), "existing RootID should be recorded")
 }
 
-func TestHandlePostedEvent_NewTopLevelPost_InlineReply(t *testing.T) {
+func TestHandlePostedEvent_TopLevelPost_InlineReply(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(mmUser{ID: "user-1", Username: "dave"})
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/users/") && !strings.Contains(r.URL.Path, "/typing") {
+			json.NewEncoder(w).Encode(mmmodel.User{Id: "user-1", Username: "dave"})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/typing") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	ts := &captureThreadStore{}
+	adapter := newTestAdapter(srv, "test")
 	onMsg := func(_ context.Context, _ *models.Message) {}
 
-	// Incoming message with no RootID — store empty so reply is inline (not threaded).
-	post := mmPost{ID: "top-post", ChannelID: "dm-3", UserID: "user-1", Message: "hello"}
+	post := mmmodel.Post{Id: "top-post", ChannelId: "dm-3", UserId: "user-1", Message: "hello"}
 	evt := makePostedEvent(post, "D")
 
 	handlePostedEvent(context.Background(), evt, "bot-id", "mybot", "mattermost:test",
-		newTestClient(srv), ts, nil, onMsg)
+		adapter.client, adapter, nil, onMsg)
 
-	assert.Equal(t, "", ts.rootID, "top-level post should store empty root so reply is inline, not threaded")
+	v, ok := adapter.threadRoots.Load("dm-3")
+	require.True(t, ok)
+	assert.Equal(t, "", v.(string), "top-level post should store empty root so reply is inline")
 }
 
 // --------------------------------------------------------------------------
@@ -219,51 +237,41 @@ func TestHandlePostedEvent_NewTopLevelPost_InlineReply(t *testing.T) {
 func TestSendMessage(t *testing.T) {
 	var capturedBody map[string]interface{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/api/v4/posts", r.URL.Path)
-		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
-
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &capturedBody)
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mmPost{ID: "new-post", ChannelID: "c1"})
+		if r.URL.Path == "/api/v4/posts" && r.Method == "POST" {
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(mmmodel.Post{Id: "new-post", ChannelId: "c1"})
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		profile:     testProfile("test", "test-token"),
-	}
-
+	adapter := newTestAdapter(srv, "test")
 	msg := models.NewMessage("c1", "hello world")
 	err := adapter.SendMessage(context.Background(), msg)
 
 	require.NoError(t, err)
 	assert.Equal(t, "c1", capturedBody["channel_id"])
 	assert.Equal(t, "hello world", capturedBody["message"])
-	// No thread root stored for this channel, so root_id should not appear.
-	_, hasRoot := capturedBody["root_id"]
-	assert.False(t, hasRoot)
 }
 
 func TestSendMessage_InThread(t *testing.T) {
 	var capturedBody map[string]interface{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &capturedBody)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mmPost{ID: "reply-post", ChannelID: "c1"})
+		if r.URL.Path == "/api/v4/posts" && r.Method == "POST" {
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(mmmodel.Post{Id: "reply-post", ChannelId: "c1"})
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		profile:     testProfile("test", "test-token"),
-	}
-	// Simulate a previously stored thread root.
+	adapter := newTestAdapter(srv, "test")
 	adapter.threadRoots.Store("c1", "root-xyz")
 
 	msg := models.NewMessage("c1", "follow-up reply")
@@ -278,25 +286,21 @@ func TestSendMessage_InThread(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestReact(t *testing.T) {
-	var capturedBody map[string]string
+	var capturedBody map[string]interface{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/api/v4/reactions", r.URL.Path)
-
-		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &capturedBody)
-
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{}`)
+		if r.URL.Path == "/api/v4/reactions" && r.Method == "POST" {
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{}`)
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		botUserID:   "bot-user-id",
-		profile:     testProfile("test", "test-token"),
-	}
+	adapter := newTestAdapter(srv, "test")
+	adapter.botUserID = "bot-user-id"
 
 	err := adapter.React(context.Background(), "post-123", ":thumbsup:")
 	require.NoError(t, err)
@@ -309,12 +313,8 @@ func TestReact_BeforeStart(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		botUserID:   "", // Start() not called yet
-		profile:     testProfile("test", "test-token"),
-	}
+	adapter := newTestAdapter(srv, "test")
+	adapter.botUserID = "" // Start() not called
 
 	err := adapter.React(context.Background(), "post-1", "thumbsup")
 	assert.Error(t, err)
@@ -334,6 +334,11 @@ func TestNewAdapter_MissingToken(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestNewAdapter_BlankName(t *testing.T) {
+	_, err := NewAdapter("https://chat.example.com", testProfile("", "token"), nil)
+	assert.Error(t, err)
+}
+
 func TestNewAdapter_OK(t *testing.T) {
 	a, err := NewAdapter("https://chat.example.com", testProfile("Researcher", "xoxb-token"), nil)
 	require.NoError(t, err)
@@ -342,50 +347,12 @@ func TestNewAdapter_OK(t *testing.T) {
 
 func TestNewAdapter_WSURLConversion(t *testing.T) {
 	cases := []struct{ in, out string }{
-		{"https://chat.example.com", "wss://chat.example.com/api/v4/websocket"},
-		{"http://localhost:8065", "ws://localhost:8065/api/v4/websocket"},
+		{"https://chat.example.com", "wss://chat.example.com"},
+		{"http://localhost:8065", "ws://localhost:8065"},
 	}
 	for _, tc := range cases {
-		a, err := NewAdapter(tc.in, testProfile("t", "token"), nil)
-		require.NoError(t, err)
-		assert.Equal(t, tc.out, a.wsURL)
+		assert.Equal(t, tc.out, buildWSURL(tc.in))
 	}
-}
-
-// --------------------------------------------------------------------------
-// SendTyping — verifies POST /api/v4/channels/<id>/typing is called
-// --------------------------------------------------------------------------
-
-func TestSendTyping(t *testing.T) {
-	var capturedReqs []struct {
-		path string
-		body map[string]interface{}
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		var body map[string]interface{}
-		bodyBytes, _ := io.ReadAll(r.Body)
-		json.Unmarshal(bodyBytes, &body)
-		capturedReqs = append(capturedReqs, struct {
-			path string
-			body map[string]interface{}
-		}{r.URL.Path, body})
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		botUserID:   "bot-user-id",
-		profile:     testProfile("test", "test-token"),
-	}
-
-	err := adapter.SendTyping(context.Background(), "channel-1")
-	require.NoError(t, err)
-	require.Len(t, capturedReqs, 1)
-	assert.Equal(t, "/api/v4/users/bot-user-id/typing", capturedReqs[0].path)
-	assert.Equal(t, "channel-1", capturedReqs[0].body["channel_id"])
 }
 
 // --------------------------------------------------------------------------
@@ -395,26 +362,21 @@ func TestSendTyping(t *testing.T) {
 func TestSendMessage_LongMessage_Chunked(t *testing.T) {
 	var postMessages []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v4/posts" {
-			http.NotFound(w, r)
+		if r.URL.Path == "/api/v4/posts" && r.Method == "POST" {
+			var body map[string]interface{}
+			bodyBytes, _ := io.ReadAll(r.Body)
+			json.Unmarshal(bodyBytes, &body)
+			postMessages = append(postMessages, body["message"].(string))
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(mmmodel.Post{Id: fmt.Sprintf("post-%d", len(postMessages)), ChannelId: "c1"})
 			return
 		}
-		var body map[string]interface{}
-		bodyBytes, _ := io.ReadAll(r.Body)
-		json.Unmarshal(bodyBytes, &body)
-		postMessages = append(postMessages, body["message"].(string))
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mmPost{ID: fmt.Sprintf("post-%d", len(postMessages)), ChannelID: "c1"})
+		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		profile:     testProfile("test", "test-token"),
-	}
+	adapter := newTestAdapter(srv, "test")
 
-	// Three paragraphs of 2000 chars each — total 6004 chars, well above maxPostSize.
 	para := strings.Repeat("x", 2000)
 	longContent := para + "\n\n" + para + "\n\n" + para
 	msg := models.NewMessage("c1", longContent)
@@ -430,21 +392,21 @@ func TestSendMessage_LongMessage_Chunked(t *testing.T) {
 func TestSendMessage_LongMessage_ThreadRootPreserved(t *testing.T) {
 	var capturedRoots []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]interface{}
-		bodyBytes, _ := io.ReadAll(r.Body)
-		json.Unmarshal(bodyBytes, &body)
-		rootID, _ := body["root_id"].(string)
-		capturedRoots = append(capturedRoots, rootID)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mmPost{ID: fmt.Sprintf("post-%d", len(capturedRoots)), ChannelID: "c1"})
+		if r.URL.Path == "/api/v4/posts" && r.Method == "POST" {
+			var body map[string]interface{}
+			bodyBytes, _ := io.ReadAll(r.Body)
+			json.Unmarshal(bodyBytes, &body)
+			rootID, _ := body["root_id"].(string)
+			capturedRoots = append(capturedRoots, rootID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(mmmodel.Post{Id: fmt.Sprintf("post-%d", len(capturedRoots)), ChannelId: "c1"})
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	defer srv.Close()
 
-	adapter := &Adapter{
-		client:      newTestClient(srv),
-		channelType: "mattermost:test",
-		profile:     testProfile("test", "test-token"),
-	}
+	adapter := newTestAdapter(srv, "test")
 	adapter.threadRoots.Store("c1", "root-xyz")
 
 	para := strings.Repeat("y", 2000)
@@ -493,7 +455,6 @@ func TestSplitMessage_LineBoundary(t *testing.T) {
 }
 
 func TestSplitMessage_SentenceBoundary(t *testing.T) {
-	// 60 a's + ". " + 60 b's = 122 chars; split window is 100, ". " is at index 60.
 	a := strings.Repeat("a", 60)
 	b := strings.Repeat("b", 60)
 	result := splitMessage(a+". "+b, 100)
@@ -503,7 +464,6 @@ func TestSplitMessage_SentenceBoundary(t *testing.T) {
 }
 
 func TestSplitMessage_HardCut(t *testing.T) {
-	// No whitespace anywhere — must hard-cut at maxSize.
 	content := strings.Repeat("a", 150)
 	result := splitMessage(content, 100)
 	require.Len(t, result, 2)

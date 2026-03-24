@@ -121,7 +121,7 @@ func BuildBackgroundFromConfig(cfg *config.Config) ports.AIProviderPort {
 		if model == "" {
 			return nil
 		}
-		return aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, maxTokens)
+		return aiopenrouter.NewAdapter(cfg.Providers.OpenRouter.APIKey, model, maxTokens, cfg.Agent.ReasoningLevel)
 	}
 	return nil
 }
