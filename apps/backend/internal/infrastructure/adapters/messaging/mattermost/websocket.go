@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/neirth/openlobster/internal/domain/models"
 )
+
+// maxAttachmentBytes is the maximum file size (in bytes) that will be
+// downloaded into memory. Larger attachments are recorded as metadata-only.
+const maxAttachmentBytes int64 = 25 * 1024 * 1024 // 25 MiB
 
 // wsEvent is the envelope for all Mattermost WebSocket events.
 type wsEvent struct {
@@ -51,7 +56,11 @@ func listenWithReconnect(
 		if ctx.Err() != nil {
 			return
 		}
-		err := connectAndListen(ctx, wsURL, token, botUserID, botUsername, channelType, client, threadStore, sr, onMessage)
+		connected, err := connectAndListen(ctx, wsURL, token, botUserID, botUsername, channelType, client, threadStore, sr, onMessage)
+		if connected {
+			// Connection was established, so reset backoff for next retry.
+			backoff = time.Second
+		}
 		if err != nil && ctx.Err() == nil {
 			log.Printf("mattermost[%s] ws: %v; reconnecting in %s", botUsername, err, backoff)
 			select {
@@ -63,8 +72,6 @@ func listenWithReconnect(
 			if backoff > maxBackoff {
 				backoff = maxBackoff
 			}
-		} else {
-			backoff = time.Second
 		}
 	}
 }
@@ -77,11 +84,11 @@ func connectAndListen(
 	threadStore threadStorer,
 	sr *StickyRouter,
 	onMessage func(context.Context, *models.Message),
-) error {
+) (connected bool, err error) {
 	dialer := websocket.DefaultDialer
 	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
-		return fmt.Errorf("dial: %w", err)
+		return false, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 
@@ -92,8 +99,10 @@ func connectAndListen(
 		"data":   map[string]string{"token": token},
 	}
 	if err := conn.WriteJSON(auth); err != nil {
-		return fmt.Errorf("auth: %w", err)
+		return false, fmt.Errorf("auth: %w", err)
 	}
+
+	connected = true
 
 	// Close the connection when the context is cancelled.
 	done := make(chan struct{})
@@ -110,9 +119,9 @@ func connectAndListen(
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil
+				return true, nil
 			}
-			return fmt.Errorf("read: %w", err)
+			return true, fmt.Errorf("read: %w", err)
 		}
 
 		var evt wsEvent
@@ -169,8 +178,9 @@ func handlePostedEvent(
 
 	// @mention filter: only process if the bot is @mentioned, it's a DM, or the
 	// user has a live sticky routing entry pointing at this adapter.
-	mentionText := "@" + botUsername
-	isMentioned := strings.Contains(post.Message, mentionText)
+	// Use word-boundary matching to avoid "@research" matching "@researcher".
+	mentionRe := regexp.MustCompile(`(?:^|\s)@` + regexp.QuoteMeta(botUsername) + `\b`)
+	isMentioned := mentionRe.MatchString(post.Message)
 	isSticky := false
 	if !isDM && !isMentioned {
 		if sr == nil || sr.Get(post.ChannelID, post.UserID) != channelType {
@@ -205,7 +215,8 @@ func handlePostedEvent(
 	}
 
 	// Strip the bot mention for cleaner LLM context.
-	content := strings.TrimSpace(strings.ReplaceAll(post.Message, mentionText, ""))
+	stripRe := regexp.MustCompile(`@` + regexp.QuoteMeta(botUsername) + `\b`)
+	content := strings.TrimSpace(stripRe.ReplaceAllString(post.Message, ""))
 
 	// Resolve file attachments.
 	var attachments []models.Attachment
@@ -226,9 +237,9 @@ func handlePostedEvent(
 		} else if strings.HasPrefix(mimeType, "video/") {
 			attType = "video"
 		}
-		data, err := client.GetFileContent(ctx, fid)
-		if err != nil {
-			data = nil
+		var data []byte
+		if fi.Size <= maxAttachmentBytes {
+			data, _ = client.GetFileContent(ctx, fid)
 		}
 		attachments = append(attachments, models.Attachment{
 			Type:     attType,
