@@ -77,7 +77,7 @@ func TestBuildLoopbackSystemPrompt_ContainsTaskExecution(t *testing.T) {
 
 func TestNewLoopbackDispatcher(t *testing.T) {
 	handler := &MessageHandler{}
-	dispatcher := NewLoopbackDispatcher(handler)
+	dispatcher := NewLoopbackDispatcher(handler, nil)
 	require.NotNil(t, dispatcher)
 	assert.Equal(t, handler, dispatcher.handler)
 }
