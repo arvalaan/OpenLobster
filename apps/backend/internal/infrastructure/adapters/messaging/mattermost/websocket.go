@@ -207,6 +207,38 @@ func handlePostedEvent(
 	// Strip the bot mention for cleaner LLM context.
 	content := strings.TrimSpace(strings.ReplaceAll(post.Message, mentionText, ""))
 
+	// Resolve file attachments.
+	var attachments []models.Attachment
+	for _, fid := range post.FileIDs {
+		fi, err := client.GetFileInfo(ctx, fid)
+		if err != nil {
+			continue
+		}
+		mimeType := fi.MimeType
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		attType := "document"
+		if strings.HasPrefix(mimeType, "image/") {
+			attType = "image"
+		} else if strings.HasPrefix(mimeType, "audio/") {
+			attType = "audio"
+		} else if strings.HasPrefix(mimeType, "video/") {
+			attType = "video"
+		}
+		data, err := client.GetFileContent(ctx, fid)
+		if err != nil {
+			data = nil
+		}
+		attachments = append(attachments, models.Attachment{
+			Type:     attType,
+			Filename: fi.Name,
+			Size:     fi.Size,
+			MIMEType: mimeType,
+			Data:     data,
+		})
+	}
+
 	// Update thread store so outbound replies stay in the same thread.
 	// For top-level posts (RootID == ""), store empty string so SendMessage
 	// produces a plain inline reply rather than forcing a new thread.
@@ -221,7 +253,8 @@ func handlePostedEvent(
 		IsMentioned: isMentioned || isSticky,
 		GroupName:   groupName,
 		Content:     content,
-		Timestamp:   time.Now(),
+		Timestamp:   time.UnixMilli(post.CreateAt),
+		Attachments: attachments,
 		Metadata: map[string]interface{}{
 			"channel_type":       channelType,
 			"mattermost_post_id": post.ID,
