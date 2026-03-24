@@ -33,6 +33,9 @@ type Adapter struct {
 	threadRoots sync.Map // map[string]string
 
 	stickyRouter *StickyRouter
+
+	// cancel stops the WebSocket listener goroutine started by Start.
+	cancel context.CancelFunc
 }
 
 // NewAdapter creates an Adapter for the given Mattermost server and bot profile.
@@ -45,9 +48,9 @@ func NewAdapter(serverURL string, profile config.MattermostBotProfile, sr *Stick
 	if profile.BotToken == "" {
 		return nil, fmt.Errorf("mattermost: profile %q: bot_token is required", profile.Name)
 	}
-	profileName := profile.Name
+	profileName := strings.TrimSpace(profile.Name)
 	if profileName == "" {
-		profileName = "default"
+		return nil, fmt.Errorf("mattermost: profile name is required")
 	}
 	return &Adapter{
 		client:       newClient(serverURL, profile.BotToken),
@@ -71,7 +74,7 @@ func (a *Adapter) set(channelID, rootID string) {
 
 // Start resolves the bot user, then spawns a goroutine that maintains the
 // WebSocket connection and calls onMessage for each relevant incoming post.
-// Returns immediately; the goroutine runs until ctx is cancelled.
+// Returns immediately; the goroutine runs until ctx is cancelled or Stop is called.
 func (a *Adapter) Start(ctx context.Context, onMessage func(context.Context, *models.Message)) error {
 	me, err := a.client.GetMe(ctx)
 	if err != nil {
@@ -80,8 +83,16 @@ func (a *Adapter) Start(ctx context.Context, onMessage func(context.Context, *mo
 	a.botUserID = me.ID
 	a.botUsername = me.Username
 
+	ctx, a.cancel = context.WithCancel(ctx)
 	go listenWithReconnect(ctx, a.wsURL, a.profile.BotToken, a.botUserID, a.botUsername, a.channelType, a.client, a, a.stickyRouter, onMessage)
 	return nil
+}
+
+// Stop cancels the WebSocket listener goroutine. Safe to call multiple times.
+func (a *Adapter) Stop() {
+	if a.cancel != nil {
+		a.cancel()
+	}
 }
 
 // maxPostSize is the maximum character count per Mattermost post.

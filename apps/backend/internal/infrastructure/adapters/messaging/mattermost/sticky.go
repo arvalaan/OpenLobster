@@ -36,10 +36,20 @@ func (r *StickyRouter) Set(channelID, userID, channelType string) {
 }
 
 func (r *StickyRouter) Get(channelID, userID string) string {
+	key := stickyKey(channelID, userID)
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	e, ok := r.entries[stickyKey(channelID, userID)]
-	if !ok || time.Now().After(e.expiresAt) {
+	e, ok := r.entries[key]
+	r.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	if time.Now().After(e.expiresAt) {
+		// Lazy eviction: upgrade to write lock and delete expired entry.
+		r.mu.Lock()
+		if e2, ok := r.entries[key]; ok && time.Now().After(e2.expiresAt) {
+			delete(r.entries, key)
+		}
+		r.mu.Unlock()
 		return ""
 	}
 	return e.channelType

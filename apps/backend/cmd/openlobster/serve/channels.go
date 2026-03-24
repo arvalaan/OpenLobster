@@ -99,6 +99,7 @@ func (a *App) initChannels() {
 		log.Println("channel: mattermost — no profiles configured (skipping)")
 	} else {
 		mmSR := mattermostadapter.NewStickyRouter()
+		seenKeys := make(map[string]bool)
 		for _, profile := range cfg.Channels.Mattermost.Profiles {
 			p := profile
 			ad, err := mattermostadapter.NewAdapter(cfg.Channels.Mattermost.ServerURL, p, mmSR)
@@ -106,8 +107,14 @@ func (a *App) initChannels() {
 				log.Printf("channel: mattermost[%s] — failed to initialize: %v", p.Name, err)
 				continue
 			}
+			key := ad.ChannelType()
+			if seenKeys[key] {
+				log.Printf("channel: mattermost[%s] — duplicate profile key %q (skipping)", p.Name, key)
+				continue
+			}
+			seenKeys[key] = true
 			a.MessagingAdapters = append(a.MessagingAdapters, ad)
-			a.MattermostProfileKeys = append(a.MattermostProfileKeys, ad.ChannelType())
+			a.MattermostProfileKeys = append(a.MattermostProfileKeys, key)
 			log.Printf("channel: mattermost[%s] — registered OK", p.Name)
 		}
 	}
@@ -285,8 +292,13 @@ func (a *App) reloadChannel(channelType string) {
 // them from the current viper config. Mattermost is multi-profile, so a single
 // reload replaces all profile adapters at once.
 func (a *App) reloadMattermost() {
-	// Remove all existing Mattermost adapters from the registry.
+	// Stop and remove all existing Mattermost adapters.
 	for _, key := range a.MattermostProfileKeys {
+		if existing := a.ChanReg.Get(key); existing != nil {
+			if mm, ok := existing.(*mattermostadapter.Adapter); ok {
+				mm.Stop()
+			}
+		}
 		a.ChanReg.Remove(key)
 	}
 	a.MattermostProfileKeys = nil
@@ -314,6 +326,7 @@ func (a *App) reloadMattermost() {
 	}
 
 	sr := mattermostadapter.NewStickyRouter()
+	seenKeys := make(map[string]bool)
 	for _, profile := range mmCfg.Profiles {
 		p := profile
 		ad, err := mattermostadapter.NewAdapter(serverURL, p, sr)
@@ -322,6 +335,11 @@ func (a *App) reloadMattermost() {
 			continue
 		}
 		key := ad.ChannelType()
+		if seenKeys[key] {
+			log.Printf("channel: mattermost[%s] — duplicate profile key %q (skipping)", p.Name, key)
+			continue
+		}
+		seenKeys[key] = true
 		a.ChanReg.Set(key, ad)
 		a.MattermostProfileKeys = append(a.MattermostProfileKeys, key)
 		if a.ChannelStartCtx != nil {
