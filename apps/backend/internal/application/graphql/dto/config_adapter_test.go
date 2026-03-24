@@ -917,7 +917,7 @@ var agentSnapshotBuildCases = []struct {
 //     (apps/backend/tests/integration/config_roundtrip_integration_test.go).
 //  3. Add/remove the corresponding assertion after queryConfig() in that same test.
 //  4. Update expectedViperKeyCount below to the new total.
-const expectedViperKeyCount = 42
+const expectedViperKeyCount = 45
 
 func TestInputToViperKeyMap_FieldCount(t *testing.T) {
 	keys := InputToViperKeyMap()
