@@ -194,6 +194,7 @@ func handlePostedEvent(
 	for _, fid := range post.FileIds {
 		fi, _, err := apiClient.GetFileInfo(ctx, fid)
 		if err != nil {
+			log.Printf("mattermost[%s]: GetFileInfo(%s) failed: %v", botUsername, fid, err)
 			continue
 		}
 		mimeType := fi.MimeType
@@ -210,7 +211,15 @@ func handlePostedEvent(
 		}
 		var fileData []byte
 		if fi.Size <= maxAttachmentBytes {
-			fileData, _, _ = apiClient.GetFile(ctx, fid)
+			var fileErr error
+			fileData, _, fileErr = apiClient.GetFile(ctx, fid)
+			if fileErr != nil {
+				log.Printf("mattermost[%s]: GetFile(%s) failed: %v", botUsername, fid, fileErr)
+			} else {
+				log.Printf("mattermost[%s]: attachment %s (%s, %d bytes, %s)", botUsername, fi.Name, attType, len(fileData), mimeType)
+			}
+		} else {
+			log.Printf("mattermost[%s]: attachment %s too large (%d bytes > %d), metadata only", botUsername, fi.Name, fi.Size, maxAttachmentBytes)
 		}
 		attachments = append(attachments, models.Attachment{
 			Type:     attType,
