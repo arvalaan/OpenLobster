@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/neirth/openlobster/internal/domain/models"
 	"github.com/neirth/openlobster/internal/domain/ports"
@@ -139,15 +140,16 @@ func (a *Adapter) SendMessage(ctx context.Context, msg *models.Message) error {
 	return nil
 }
 
-// splitMessage divides content into chunks no larger than maxSize, splitting
-// at natural language boundaries (paragraphs > lines > sentences > words > hard cut).
+// splitMessage divides content into chunks no larger than maxSize characters,
+// splitting at natural language boundaries (paragraphs > lines > sentences > words > hard cut).
+// All operations use byte offsets but the hard-cut fallback is rune-safe.
 func splitMessage(content string, maxSize int) []string {
-	if len(content) <= maxSize {
+	if utf8.RuneCountInString(content) <= maxSize {
 		return []string{content}
 	}
 	var chunks []string
 	remaining := content
-	for len(remaining) > maxSize {
+	for utf8.RuneCountInString(remaining) > maxSize {
 		idx := findSplitPoint(remaining, maxSize)
 		chunks = append(chunks, strings.TrimSpace(remaining[:idx]))
 		remaining = strings.TrimSpace(remaining[idx:])
@@ -158,8 +160,21 @@ func splitMessage(content string, maxSize int) []string {
 	return chunks
 }
 
+// runeByteOffset returns the byte offset of the n-th rune in s.
+// If n >= the rune count, it returns len(s).
+func runeByteOffset(s string, n int) int {
+	off := 0
+	for i := 0; i < n && off < len(s); i++ {
+		_, size := utf8.DecodeRuneInString(s[off:])
+		off += size
+	}
+	return off
+}
+
 func findSplitPoint(content string, maxSize int) int {
-	window := content[:maxSize]
+	// Convert rune limit to a byte offset for the search window.
+	byteLimit := runeByteOffset(content, maxSize)
+	window := content[:byteLimit]
 	if i := strings.LastIndex(window, "\n\n"); i > 0 {
 		return i + 2
 	}
@@ -174,7 +189,7 @@ func findSplitPoint(content string, maxSize int) int {
 	if i := strings.LastIndex(window, " "); i > 0 {
 		return i + 1
 	}
-	return maxSize
+	return byteLimit
 }
 
 // SendMedia posts a message with an optional file attachment.
