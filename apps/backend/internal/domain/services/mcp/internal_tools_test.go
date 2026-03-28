@@ -134,6 +134,11 @@ func (m *MockBrowserService) FillInput(ctx context.Context, sessionID, selector,
 	return args.Error(0)
 }
 
+func (m *MockBrowserService) Eval(ctx context.Context, sessionID, script string) (interface{}, error) {
+	args := m.Called(ctx, sessionID, script)
+	return args.Get(0), args.Error(1)
+}
+
 type MockCronService struct {
 	mock.Mock
 }

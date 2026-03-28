@@ -11,7 +11,9 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -199,8 +201,16 @@ func convertUserContentParts(blocks []ports.ContentBlock, fallback string) []goO
 				parts = append(parts, goOpenAI.ImageContentPart(goOpenAI.ChatCompletionContentPartImageImageURLParam{
 					URL: b.URL,
 				}))
+			} else if len(b.Data) > 0 {
+				mime := b.MIMEType
+				if mime == "" {
+					mime = "image/png"
+				}
+				dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(b.Data))
+				parts = append(parts, goOpenAI.ImageContentPart(goOpenAI.ChatCompletionContentPartImageImageURLParam{
+					URL: dataURL,
+				}))
 			}
-			// Data (base64) images not handled here; URL is the expected path for platform attachments.
 		case ports.ContentBlockAudio:
 			// Audio input via URL is not supported by the Chat Completions endpoint.
 		}

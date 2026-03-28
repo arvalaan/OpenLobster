@@ -390,7 +390,39 @@ func (a *BrowserAdapter) Fetch(ctx context.Context, sessionID, url string) (stri
 	if err := page.Navigate(ctx, url); err != nil {
 		return "", err
 	}
-	result, err := page.Eval(ctx, "document.documentElement.innerText")
+	// Extract visible text plus all link hrefs and script/iframe sources so the
+	// agent can discover embedded widgets (e.g. Zenchef booking iframes) that
+	// innerText alone would hide.
+	const extractJS = `
+(() => {
+  const text = document.body.innerText;
+  const links = [...new Set(
+    Array.from(document.querySelectorAll('a[href]'))
+      .map(a => a.href)
+      .filter(h => h && !h.startsWith('javascript:'))
+  )];
+  const scripts = [...new Set(
+    Array.from(document.querySelectorAll('script[src]'))
+      .map(s => s.src)
+  )];
+  const iframes = [...new Set(
+    Array.from(document.querySelectorAll('iframe[src]'))
+      .map(f => f.src)
+  )];
+  const meta = Array.from(document.querySelectorAll('meta[property],meta[name]'))
+    .slice(0, 20)
+    .map(m => (m.getAttribute('property') || m.getAttribute('name')) + '=' + m.getAttribute('content'))
+    .filter(s => s.length < 200);
+
+  let out = text;
+  if (links.length)   out += '\n\n--- Links ---\n' + links.join('\n');
+  if (scripts.length) out += '\n\n--- Scripts ---\n' + scripts.join('\n');
+  if (iframes.length) out += '\n\n--- Iframes ---\n' + iframes.join('\n');
+  if (meta.length)    out += '\n\n--- Meta ---\n' + meta.join('\n');
+  return out;
+})()
+`
+	result, err := page.Eval(ctx, extractJS)
 	if err != nil {
 		return "", err
 	}
@@ -422,4 +454,12 @@ func (a *BrowserAdapter) FillInput(ctx context.Context, sessionID, selector, tex
 		return err
 	}
 	return page.Type(ctx, selector, text)
+}
+
+func (a *BrowserAdapter) Eval(ctx context.Context, sessionID, script string) (interface{}, error) {
+	page, err := a.getOrCreatePage(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return page.Eval(ctx, script)
 }

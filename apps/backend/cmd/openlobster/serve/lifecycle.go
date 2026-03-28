@@ -44,6 +44,7 @@ func (a *App) startAndWait() {
 			a.UserRepo,
 			a.SessionRepo,
 			a.ToolRegistry,
+			dispatcher,
 		)
 		sched := domainservices.NewScheduler(
 			a.Cfg.Scheduler.MemoryInterval,

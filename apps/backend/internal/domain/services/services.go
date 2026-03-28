@@ -37,6 +37,7 @@ var NewScheduler = svcscheduler.NewScheduler
 
 const MemoryConsolidationPrompt = svcscheduler.MemoryConsolidationPrompt
 const ConfidenceCheckPrompt = svcscheduler.ConfidenceCheckPrompt
+const ArchivistPrompt = svcscheduler.ArchivistPrompt
 
 // SubAgent
 type SubAgentService = svcsubagent.Service

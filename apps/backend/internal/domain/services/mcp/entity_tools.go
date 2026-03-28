@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/neirth/openlobster/internal/infrastructure/logging"
 )
 
 // entityNeoUnavailable is returned when the graph backend does not support
@@ -40,6 +42,11 @@ var validNodePropertyKeys = map[string]bool{
 	"date": true, "deadline": true, "status": true,
 	"make": true, "model": true, "year": true,
 	"email": true, "phone": true,
+	// staleness_hint is an ISO 8601 duration (e.g. "P7D" for 7 days, "P30D" for
+	// 30 days) indicating how long this entity's data is expected to remain fresh.
+	// The confidence check agent queries for entities past their staleness window
+	// and proactively asks users to verify them.
+	"staleness_hint": true,
 }
 
 // validRelPropertyKeys is the allowlist of property keys on relationships.
@@ -47,6 +54,55 @@ var validRelPropertyKeys = map[string]bool{
 	"role": true, "valid_from": true, "valid_to": true,
 	"notes": true, "source": true, "txn_created_at": true,
 	"expiry_reason": true,
+	// Provenance: trace which consolidation run and conversation created this edge
+	"source_conversation_id": true, "source_episode_id": true,
+}
+
+// validateTemporalRange checks that valid_from <= valid_to when both are present.
+// If the range is inverted, it returns an error describing the issue. This
+// prevents the graph from storing logically impossible date ranges that confuse
+// temporal queries and the confidence check agent.
+func validateTemporalRange(props map[string]interface{}) error {
+	fromRaw, hasFrom := props["valid_from"]
+	toRaw, hasTo := props["valid_to"]
+	if !hasFrom || !hasTo {
+		return nil // nothing to validate if only one side is present
+	}
+	fromStr, ok1 := fromRaw.(string)
+	toStr, ok2 := toRaw.(string)
+	if !ok1 || !ok2 {
+		return nil // non-string values are handled elsewhere
+	}
+	from, err1 := time.Parse(time.RFC3339, fromStr)
+	to, err2 := time.Parse(time.RFC3339, toStr)
+	if err1 != nil || err2 != nil {
+		// Try date-only format as fallback
+		from, err1 = time.Parse("2006-01-02", fromStr)
+		to, err2 = time.Parse("2006-01-02", toStr)
+		if err1 != nil || err2 != nil {
+			return nil // unparseable dates — let the graph handle them
+		}
+	}
+	if from.After(to) {
+		return fmt.Errorf("inverted date range: valid_from (%s) is after valid_to (%s)", fromStr, toStr)
+	}
+	return nil
+}
+
+// cypherNow returns a Cypher expression for the current timestamp as a native
+// Neo4j DateTime. Use this instead of Go-formatted RFC3339 strings to ensure
+// all timestamps are stored as native temporal values.
+func cypherNow() string {
+	return "datetime()"
+}
+
+// cypherDatetime wraps an ISO-8601 string in datetime() so Neo4j stores it as
+// a native temporal value rather than a plain string.
+func cypherDatetime(iso string) string {
+	if iso == "" {
+		return "null"
+	}
+	return fmt.Sprintf("datetime(%s)", jsonStr(iso))
 }
 
 // validatePropertyKeys checks that all keys in props are in the allowed set.
@@ -167,6 +223,16 @@ func (t *UpsertEntityTool) Execute(ctx context.Context, params map[string]interf
 	if err := validatePropertyKeys(relProps, validRelPropertyKeys); err != nil {
 		return nil, fmt.Errorf("upsert_entity rel_props: %w", err)
 	}
+	if err := validateTemporalRange(relProps); err != nil {
+		logging.Printf("entity_tools: upsert_entity: %v — swapping valid_from and valid_to", err)
+		relProps["valid_from"], relProps["valid_to"] = relProps["valid_to"], relProps["valid_from"]
+	}
+	// Auto-inject provenance from context if not already set
+	if _, has := relProps["source_conversation_id"]; !has {
+		if cid, ok := ctx.Value(ContextKeyConversationID).(string); ok && cid != "" {
+			relProps["source_conversation_id"] = cid
+		}
+	}
 	if _, hasValidFrom := relProps["valid_from"]; !hasValidFrom {
 		// Temporal relationships always need valid_from; set it to now if not provided
 		transientRels := map[string]bool{
@@ -191,25 +257,27 @@ ON CREATE SET r.valid_from = %s, r.source = "conversation", r.txn_created_at = %
 RETURN e.id AS id, e.name AS name`,
 		entityType,
 		jsonStr(name),
-		jsonStr(now),
-		jsonStr(now),
+		cypherNow(),
+		cypherNow(),
 		nodePropCypher,
-		jsonStr(now),
-		jsonStr(now),
+		cypherNow(),
+		cypherNow(),
 		nodePropCypher,
 		jsonStr(userID),
 		jsonStr(userID),
 		relation,
-		jsonStr(now),
-		jsonStr(now),
+		cypherNow(),
+		cypherNow(),
 		relPropCypher,
 	)
 
+	logging.Printf("entity_tools: upsert_entity: type=%s name=%q relation=%s user=%s", entityType, name, relation, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: upsert_entity: failed type=%s name=%q: %v", entityType, name, err)
 		return nil, fmt.Errorf("upsert_entity: %w", err)
 	}
 
@@ -219,6 +287,7 @@ RETURN e.id AS id, e.name AS name`,
 			id = fmt.Sprintf("%v", v)
 		}
 	}
+	logging.Printf("entity_tools: upsert_entity: ok id=%s type=%s name=%q", id, entityType, name)
 	return json.RawMessage(fmt.Sprintf(`{"status":"ok","id":%s,"name":%s,"type":%s}`,
 		jsonStr(id), jsonStr(name), jsonStr(entityType))), nil
 }
@@ -275,7 +344,6 @@ func (t *LinkEntitiesTool) Execute(ctx context.Context, params map[string]interf
 		return nil, fmt.Errorf("link_entities: one or both nodes not found (from_id=%s, to_id=%s)", fromID, toID)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	relProps := map[string]interface{}{}
 	if p, ok := params["properties"].(map[string]interface{}); ok {
 		for k, v := range p {
@@ -285,27 +353,41 @@ func (t *LinkEntitiesTool) Execute(ctx context.Context, params map[string]interf
 	if err := validatePropertyKeys(relProps, validRelPropertyKeys); err != nil {
 		return nil, fmt.Errorf("link_entities properties: %w", err)
 	}
+	if err := validateTemporalRange(relProps); err != nil {
+		logging.Printf("entity_tools: link_entities: %v — swapping valid_from and valid_to", err)
+		relProps["valid_from"], relProps["valid_to"] = relProps["valid_to"], relProps["valid_from"]
+	}
+	// Auto-inject provenance from context if not already set
+	if _, has := relProps["source_conversation_id"]; !has {
+		if cid, ok := ctx.Value(ContextKeyConversationID).(string); ok && cid != "" {
+			relProps["source_conversation_id"] = cid
+		}
+	}
 	relPropCypher := buildCypherPropsLiteral("r", relProps)
 
 	cypher := fmt.Sprintf(`
 MATCH (a {id: %s}), (b {id: %s})
 MERGE (a)-[r:%s]->(b)
-ON CREATE SET r.valid_from = %s, r.source = "conversation"%s
+ON CREATE SET r.valid_from = %s, r.source = "conversation", r.txn_created_at = %s%s
 RETURN type(r) AS relation`,
 		jsonStr(fromID),
 		jsonStr(toID),
 		relation,
-		jsonStr(now),
+		cypherNow(),
+		cypherNow(),
 		relPropCypher,
 	)
 
+	logging.Printf("entity_tools: link_entities: from=%s to=%s relation=%s", fromID, toID, relation)
 	_, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: link_entities: failed from=%s to=%s: %v", fromID, toID, err)
 		return nil, fmt.Errorf("link_entities: %w", err)
 	}
+	logging.Printf("entity_tools: link_entities: ok from=%s to=%s relation=%s", fromID, toID, relation)
 	return json.RawMessage(`{"status":"ok"}`), nil
 }
 
@@ -349,14 +431,17 @@ LIMIT 1`,
 		entityType, jsonStr(name),
 	)
 
+	logging.Debugf("entity_tools: find_entity: type=%s name=%q", entityType, name)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: find_entity: failed type=%s name=%q: %v", entityType, name, err)
 		return nil, fmt.Errorf("find_entity: %w", err)
 	}
 	if len(result.Data) == 0 {
+		logging.Debugf("entity_tools: find_entity: not found type=%s name=%q", entityType, name)
 		return json.RawMessage(fmt.Sprintf(`{"found":false,"type":%s,"name":%s}`,
 			jsonStr(entityType), jsonStr(name))), nil
 	}
@@ -426,11 +511,13 @@ RETURN labels(e)[0] AS nodeType, e.name AS nodeName, e AS nodeProps,
        }) AS edges
 LIMIT 1`, matchClause)
 
+	logging.Debugf("entity_tools: get_entity_context: id=%s name=%q type=%s", entityID, name, entityType)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: get_entity_context: failed: %v", err)
 		return nil, fmt.Errorf("get_entity_context: %w", err)
 	}
 	if len(result.Data) == 0 {
@@ -527,6 +614,23 @@ func (t *ListEntitiesTool) Execute(ctx context.Context, params map[string]interf
 		typeFilter = ":" + entityType
 	}
 
+	// Append a UNION ALL clause that surfaces duplicate User nodes (more than
+	// one User node with the same displayName). Without this, the Archivist
+	// can never see or merge duplicate User nodes since they are normally
+	// filtered out of entity listings.
+	// NOTE: ORDER BY cannot appear inside a UNION subquery in Neo4j — it must
+	// come after the entire UNION, so we omit it from the first RETURN and
+	// add it at the very end.
+	const dupUserUnion = `
+UNION ALL
+MATCH (dup:User)
+WITH coalesce(dup.displayName, dup.name, dup.real_name) AS dn, collect(dup) AS users
+WHERE dn IS NOT NULL AND size(users) > 1
+UNWIND users AS u2
+RETURN "User" AS type, u2.id AS id,
+       coalesce(u2.displayName, u2.name, u2.real_name, u2.id) AS name,
+       null AS relation, null AS valid_from, null AS valid_to`
+
 	var cypher string
 	if userID != "" {
 		cypher = fmt.Sprintf(`
@@ -535,10 +639,9 @@ WITH u
 MATCH (u)-[r%s]->(e%s)
 WHERE NOT e:User
 RETURN labels(e)[0] AS type, e.id AS id, e.name AS name,
-       type(r) AS relation, r.valid_from AS valid_from, r.valid_to AS valid_to
-ORDER BY type, name`,
+       type(r) AS relation, r.valid_from AS valid_from, r.valid_to AS valid_to`,
 			jsonStr(userID), jsonStr(userID), relFilter, typeFilter,
-		)
+		) + dupUserUnion
 	} else {
 		// No user context — list all non-User entities (useful for archivist runs)
 		cypher = fmt.Sprintf(`
@@ -546,20 +649,22 @@ MATCH (e%s)
 WHERE NOT e:User
 OPTIONAL MATCH (:User)-[r%s]->(e)
 RETURN labels(e)[0] AS type, e.id AS id, e.name AS name,
-       type(r) AS relation, r.valid_from AS valid_from, r.valid_to AS valid_to
-ORDER BY type, name`,
+       type(r) AS relation, r.valid_from AS valid_from, r.valid_to AS valid_to`,
 			typeFilter, relFilter,
-		)
+		) + dupUserUnion
 	}
 
+	logging.Debugf("entity_tools: list_entities: type=%s relation=%s user=%s", entityType, relation, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: list_entities: failed: %v", err)
 		return nil, fmt.Errorf("list_entities: %w", err)
 	}
 
+	logging.Debugf("entity_tools: list_entities: returned %d entities", len(result.Data))
 	out, _ := json.Marshal(map[string]interface{}{
 		"count":    len(result.Data),
 		"entities": result.Data,
@@ -618,11 +723,13 @@ RETURN count(r) AS expired`,
 		jsonStr(now), reasonClause,
 	)
 
+	logging.Printf("entity_tools: expire_relationship: from=%s rel=%s to=%s reason=%q", fromID, relation, toID, reason)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: expire_relationship: failed from=%s to=%s: %v", fromID, toID, err)
 		return nil, fmt.Errorf("expire_relationship: %w", err)
 	}
 
@@ -740,11 +847,13 @@ RETURN a.id AS id, a.confidence AS confidence, a.mention_count AS mentions`,
 		jsonStr(now),
 	)
 
+	logging.Printf("entity_tools: upsert_assertion: label=%q confidence=%.2f user=%s", label, conf, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: upsert_assertion: failed label=%q: %v", label, err)
 		return nil, fmt.Errorf("upsert_assertion: %w", err)
 	}
 
@@ -783,6 +892,7 @@ RETURN type(r) AS rel`,
 			}
 		}
 	}
+	logging.Printf("entity_tools: upsert_assertion: ok id=%s confidence=%.2f mentions=%d", id, confidence, mentions)
 	return json.RawMessage(fmt.Sprintf(`{"status":"ok","id":%s,"confidence":%.2f,"mentions":%d}`,
 		jsonStr(id), confidence, mentions)), nil
 }
@@ -844,11 +954,13 @@ RETURN ep.id AS id`,
 		jsonStr(now),
 	)
 
+	logging.Printf("entity_tools: create_episode: label=%q user=%s", label, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: create_episode: failed label=%q: %v", label, err)
 		return nil, fmt.Errorf("create_episode: %w", err)
 	}
 
@@ -858,6 +970,7 @@ RETURN ep.id AS id`,
 			id = fmt.Sprintf("%v", v)
 		}
 	}
+	logging.Printf("entity_tools: create_episode: ok id=%s label=%q", id, label)
 	return json.RawMessage(fmt.Sprintf(`{"status":"ok","id":%s}`, jsonStr(id))), nil
 }
 
@@ -944,14 +1057,17 @@ LIMIT %d`,
 			whereStr, limit)
 	}
 
+	logging.Debugf("entity_tools: list_assertions: minConf=%.2f maxConf=%.2f unpromotedOnly=%v user=%s", minConf, maxConf, unpromotedOnly, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: list_assertions: failed: %v", err)
 		return nil, fmt.Errorf("list_assertions: %w", err)
 	}
 
+	logging.Debugf("entity_tools: list_assertions: returned %d assertions", len(result.Data))
 	out, _ := json.Marshal(map[string]interface{}{
 		"count":      len(result.Data),
 		"assertions": result.Data,
@@ -1093,11 +1209,14 @@ RETURN e.id AS entity_id, e.name AS entity_name, a.id AS assertion_id`,
 		jsonStr(now),
 	)
 
+	logging.Printf("entity_tools: promote_assertion: assertion=%s -> %s %q relation=%s user=%s",
+		assertionID, entityType, entityName, relation, userID)
 	result, err := t.Tools.Memory.QueryGraph(ctx, cypher)
 	if isCypherUnsupported(err) {
 		return json.RawMessage(entityNeoUnavailable), nil
 	}
 	if err != nil {
+		logging.Printf("entity_tools: promote_assertion: failed assertion=%s: %v", assertionID, err)
 		return nil, fmt.Errorf("promote_assertion: %w", err)
 	}
 
@@ -1107,6 +1226,8 @@ RETURN e.id AS entity_id, e.name AS entity_name, a.id AS assertion_id`,
 			entityID = fmt.Sprintf("%v", v)
 		}
 	}
+	logging.Printf("entity_tools: promote_assertion: ok assertion=%s -> entity=%s (%s %q)",
+		assertionID, entityID, entityType, entityName)
 	return json.RawMessage(fmt.Sprintf(`{"status":"ok","entity_id":%s,"entity_name":%s,"entity_type":%s,"assertion_id":%s}`,
 		jsonStr(entityID), jsonStr(entityName), jsonStr(entityType), jsonStr(assertionID))), nil
 }
@@ -1146,6 +1267,14 @@ func jsonStr(s string) string {
 // buildCypherPropsLiteral converts a map of extra properties into a Cypher SET
 // fragment of the form `, <var>.key = "value"`. Returns empty string if map is empty.
 // varName is the Cypher binding variable (e.g. "e" for nodes, "r" for relationships).
+// temporalPropertyKeys lists property keys that should be stored as native Neo4j
+// DateTime values. When buildCypherPropsLiteral encounters a string value for one
+// of these keys, it wraps it in datetime() to ensure native temporal storage.
+var temporalPropertyKeys = map[string]bool{
+	"valid_from": true, "valid_to": true,
+	"txn_created_at": true, "txn_updated_at": true,
+}
+
 func buildCypherPropsLiteral(varName string, props map[string]interface{}) string {
 	if len(props) == 0 {
 		return ""
@@ -1153,7 +1282,14 @@ func buildCypherPropsLiteral(varName string, props map[string]interface{}) strin
 	var sb strings.Builder
 	for k, v := range props {
 		val, _ := json.Marshal(v)
-		sb.WriteString(fmt.Sprintf(", %s.%s = %s", varName, k, string(val)))
+		valStr := string(val)
+		// Wrap temporal string values in datetime() for native Neo4j storage
+		if temporalPropertyKeys[k] {
+			if s, ok := v.(string); ok && s != "" {
+				valStr = fmt.Sprintf("datetime(%s)", valStr)
+			}
+		}
+		sb.WriteString(fmt.Sprintf(", %s.%s = %s", varName, k, valStr))
 	}
 	return sb.String()
 }

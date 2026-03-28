@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/neirth/openlobster/internal/domain/ports"
+	"github.com/neirth/openlobster/internal/infrastructure/logging"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
@@ -105,11 +106,14 @@ func (a *Adapter) AddKnowledge(ctx context.Context, userID string, content strin
 	if existingFactID != "" {
 		// Relation already exists: do not mutate the Fact node content or remove
 		// any existing relations.
+		logging.Printf("neo4j: AddKnowledge: existing %s node found (id=%s) for user=%s label=%q rel=%s — merging relation only",
+			entityType, existingFactID, userID, label, rel)
 		mergeResult, err := session.Run(ctx,
 			fmt.Sprintf("MERGE (u:User {id: $userID}) MERGE (f:%s {id: $factID}) MERGE (u)-[r:%s]->(f)", entityType, rel),
 			map[string]interface{}{"userID": userID, "factID": existingFactID},
 		)
 		if err != nil {
+			logging.Printf("neo4j: AddKnowledge: merge failed for user=%s label=%q: %v", userID, label, err)
 			return err
 		}
 		mergeResult.Consume(ctx)
@@ -119,6 +123,8 @@ func (a *Adapter) AddKnowledge(ctx context.Context, userID string, content strin
 	// No existing node for this user+label+relation — create a new node and
 	// attach the relation without touching anything else.
 	factID := uuid.New().String()
+	logging.Printf("neo4j: AddKnowledge: creating %s node (id=%s) for user=%s label=%q rel=%s",
+		entityType, factID, userID, label, rel)
 	createResult, err := session.Run(ctx,
 		"MERGE (u:User {id: $userID}) "+
 			"CREATE (f:"+entityType+" {id: $factID, label: $label, content: $content, createdAt: timestamp()}) "+
@@ -126,6 +132,7 @@ func (a *Adapter) AddKnowledge(ctx context.Context, userID string, content strin
 		map[string]interface{}{"userID": userID, "factID": factID, "label": label, "content": content},
 	)
 	if err != nil {
+		logging.Printf("neo4j: AddKnowledge: create failed for user=%s label=%q: %v", userID, label, err)
 		return err
 	}
 	createResult.Consume(ctx)
@@ -142,11 +149,13 @@ func (a *Adapter) UpdateUserLabel(ctx context.Context, userID, displayName strin
 	session := a.driver.NewSession(context.Background(), neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(context.Background())
 
+	logging.Printf("neo4j: UpdateUserLabel: user=%s displayName=%q", userID, displayName)
 	result, err := session.Run(ctx,
 		"MERGE (u:User {id: $userID}) SET u.displayName = $displayName",
 		map[string]interface{}{"userID": userID, "displayName": displayName},
 	)
 	if err != nil {
+		logging.Printf("neo4j: UpdateUserLabel: failed for user=%s: %v", userID, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -435,9 +444,11 @@ func (a *Adapter) AddRelation(ctx context.Context, from, to string, relType stri
 	defer session.Close(context.Background())
 
 	rel := sanitizeRelType(relType)
+	logging.Printf("neo4j: AddRelation: from=%s to=%s rel=%s", from, to, rel)
 	cypher := fmt.Sprintf("MERGE (a:User {id: $from}) MERGE (b:User {id: $to}) MERGE (a)-[r:%s]->(b) RETURN r", rel)
 	result, err := session.Run(ctx, cypher, map[string]interface{}{"from": from, "to": to})
 	if err != nil {
+		logging.Printf("neo4j: AddRelation: failed from=%s to=%s rel=%s: %v", from, to, rel, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -456,9 +467,11 @@ func (a *Adapter) DeleteRelation(ctx context.Context, from, to string) error {
 	fromID := strings.TrimPrefix(from, "user:")
 	toID := strings.TrimPrefix(to, "user:")
 
+	logging.Printf("neo4j: DeleteRelation: from=%s to=%s", from, to)
 	cypher := "MATCH (a {id: $from})-[r]->(b {id: $to}) DELETE r"
 	result, err := session.Run(ctx, cypher, map[string]interface{}{"from": fromID, "to": toID})
 	if err != nil {
+		logging.Printf("neo4j: DeleteRelation: failed from=%s to=%s: %v", from, to, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -472,8 +485,10 @@ func (a *Adapter) QueryGraph(ctx context.Context, cypher string) (ports.GraphRes
 	session := a.driver.NewSession(context.Background(), neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(context.Background())
 
+	logging.Debugf("neo4j: QueryGraph: %s", cypher)
 	result, err := session.Run(ctx, cypher, nil)
 	if err != nil {
+		logging.Printf("neo4j: QueryGraph: failed: %v — cypher: %s", err, cypher)
 		return ports.GraphResult{Errors: []error{err}}, nil
 	}
 
@@ -487,6 +502,7 @@ func (a *Adapter) QueryGraph(ctx context.Context, cypher string) (ports.GraphRes
 		data = append(data, row)
 	}
 
+	logging.Debugf("neo4j: QueryGraph: returned %d rows", len(data))
 	return ports.GraphResult{Data: data}, result.Err()
 }
 
@@ -508,12 +524,14 @@ func (a *Adapter) SetUserProperty(ctx context.Context, userID, key, value string
 	session := a.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
+	logging.Printf("neo4j: SetUserProperty: user=%s key=%s value=%q", userID, safeKey, value)
 	cypher := fmt.Sprintf(`MERGE (u:User {id: $userID}) SET u.%s = $value`, safeKey)
 	result, err := session.Run(ctx, cypher, map[string]interface{}{
 		"userID": userID,
 		"value":  value,
 	})
 	if err != nil {
+		logging.Printf("neo4j: SetUserProperty: failed for user=%s key=%s: %v", userID, safeKey, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -529,6 +547,7 @@ func (a *Adapter) EditMemoryNode(ctx context.Context, userID, nodeID, newValue s
 	session := a.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
+	logging.Printf("neo4j: EditMemoryNode: nodeID=%s user=%s", nodeID, userID)
 	var cypher string
 	params := map[string]interface{}{"nodeID": nodeID, "newValue": newValue}
 	if userID != "" {
@@ -539,6 +558,7 @@ func (a *Adapter) EditMemoryNode(ctx context.Context, userID, nodeID, newValue s
 	}
 	result, err := session.Run(ctx, cypher, params)
 	if err != nil {
+		logging.Printf("neo4j: EditMemoryNode: failed nodeID=%s: %v", nodeID, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -553,16 +573,46 @@ func (a *Adapter) DeleteMemoryNode(ctx context.Context, userID, nodeID string) e
 	session := a.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
-	var cypher string
+	logging.Printf("neo4j: DeleteMemoryNode: nodeID=%s user=%s", nodeID, userID)
 	params := map[string]interface{}{"nodeID": nodeID}
 	if userID != "" {
-		cypher = "MATCH (u:User {id: $userID})-[]->(n {id: $nodeID}) DETACH DELETE n"
+		// Try scoped delete first: node connected from the user.
+		cypher := "MATCH (u:User {id: $userID})-[]->(n {id: $nodeID}) DETACH DELETE n RETURN count(*) AS deleted"
 		params["userID"] = userID
-	} else {
-		cypher = "MATCH (n {id: $nodeID}) DETACH DELETE n"
+		result, err := session.Run(ctx, cypher, params)
+		if err != nil {
+			logging.Printf("neo4j: DeleteMemoryNode: failed nodeID=%s: %v", nodeID, err)
+			return err
+		}
+		rec, _ := result.Single(ctx)
+		deleted := int64(0)
+		if rec != nil {
+			if v, ok := rec.Get("deleted"); ok {
+				deleted, _ = v.(int64)
+			}
+		}
+		if deleted > 0 {
+			return nil
+		}
+		// Scoped query matched nothing — the target may be a duplicate User node.
+		// Only allow deleting a User node if at least one other User node exists
+		// (never delete the last user).
+		logging.Printf("neo4j: DeleteMemoryNode: scoped delete matched nothing, trying User node fallback for nodeID=%s", nodeID)
+		fallback := "MATCH (target:User {id: $nodeID}) " +
+			"WHERE EXISTS { MATCH (other:User) WHERE other.id <> $nodeID } " +
+			"DETACH DELETE target"
+		result2, err2 := session.Run(ctx, fallback, params)
+		if err2 != nil {
+			logging.Printf("neo4j: DeleteMemoryNode: User fallback failed nodeID=%s: %v", nodeID, err2)
+			return err2
+		}
+		result2.Consume(ctx)
+		return nil
 	}
+	cypher := "MATCH (n {id: $nodeID}) DETACH DELETE n"
 	result, err := session.Run(ctx, cypher, params)
 	if err != nil {
+		logging.Printf("neo4j: DeleteMemoryNode: failed nodeID=%s: %v", nodeID, err)
 		return err
 	}
 	result.Consume(ctx)
@@ -582,6 +632,7 @@ func (a *Adapter) UpdateNode(ctx context.Context, id, label, typ, value string, 
 	// User nodes use the synthetic "user:<userId>" prefix — strip it to get the real userId.
 	if strings.HasPrefix(id, "user:") {
 		userID := strings.TrimPrefix(id, "user:")
+		logging.Printf("neo4j: UpdateNode: updating User node user=%s label=%q", userID, label)
 		cypher := "MERGE (u:User {id: $userID})"
 		params := map[string]interface{}{"userID": userID}
 		if label != "" {
@@ -593,6 +644,7 @@ func (a *Adapter) UpdateNode(ctx context.Context, id, label, typ, value string, 
 		}
 		result, err := session.Run(ctx, cypher, params)
 		if err != nil {
+			logging.Printf("neo4j: UpdateNode: failed for user=%s: %v", userID, err)
 			return err
 		}
 		result.Consume(ctx)
@@ -601,6 +653,7 @@ func (a *Adapter) UpdateNode(ctx context.Context, id, label, typ, value string, 
 
 	// Default: memory entity node — MATCH by UUID id and update content/label.
 	// If typ is provided, also update the Neo4j node label (Person/Place/Thing/Story/Fact).
+	logging.Printf("neo4j: UpdateNode: updating entity node id=%s type=%q label=%q", id, typ, label)
 	typNormalized := strings.ToLower(strings.TrimSpace(typ))
 	desiredLabel := ""
 	switch typNormalized {
@@ -681,6 +734,7 @@ func (a *Adapter) UpdateNode(ctx context.Context, id, label, typ, value string, 
 		return err
 	}
 	if !result.Next(ctx) {
+		logging.Printf("neo4j: UpdateNode: no node found with id=%s", id)
 		return fmt.Errorf("neo4j: UpdateNode: no node found with id %q", id)
 	}
 	result.Consume(ctx)
@@ -711,14 +765,17 @@ func (a *Adapter) DeleteNode(ctx context.Context, id string) error {
 		defer session.Close(ctx)
 
 		userID := strings.TrimPrefix(id, "user:")
+		logging.Printf("neo4j: DeleteNode: deleting User node user=%s", userID)
 		result, err := session.Run(ctx, "MATCH (u:User {id: $userID}) DETACH DELETE u", map[string]interface{}{"userID": userID})
 		if err != nil {
+			logging.Printf("neo4j: DeleteNode: failed for user=%s: %v", userID, err)
 			return err
 		}
 		result.Consume(ctx)
 		return nil
 	}
 
+	logging.Printf("neo4j: DeleteNode: deleting entity node id=%s", id)
 	return a.DeleteMemoryNode(ctx, "", id)
 }
 
@@ -764,8 +821,10 @@ func (b *Neo4jMemoryBackend) DeleteFact(ctx context.Context, factID string) erro
 	session := b.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
+	logging.Printf("neo4j: DeleteFact: factID=%s", factID)
 	result, err := session.Run(ctx, "MATCH (f:Fact {id: $factID}) DETACH DELETE f", map[string]interface{}{"factID": factID})
 	if err != nil {
+		logging.Printf("neo4j: DeleteFact: failed factID=%s: %v", factID, err)
 		return err
 	}
 	result.Consume(ctx)

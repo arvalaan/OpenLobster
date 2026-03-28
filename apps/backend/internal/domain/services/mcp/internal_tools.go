@@ -5,11 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +46,11 @@ const ContextKeyChannelID = contextKey("channel_id")
 // request context into tool Execute calls. Used by SendFileTool to fall back to
 // the conversation channel type when no explicit channel_type is provided.
 const ContextKeyChannelType = contextKey("channel_type")
+
+// ContextKeyConversationID is the exported context key used to pass the current
+// conversation's ID for provenance tracking. Entity relationships created during
+// consolidation carry this ID so graph data can be traced back to source conversations.
+const ContextKeyConversationID = contextKey("conversation_id")
 
 type InternalTools struct {
 	Messaging           MessagingService
@@ -182,6 +190,7 @@ type BrowserService interface {
 	Screenshot(ctx context.Context, sessionID string) ([]byte, error)
 	Click(ctx context.Context, sessionID, selector string) error
 	FillInput(ctx context.Context, sessionID, selector, text string) error
+	Eval(ctx context.Context, sessionID, script string) (interface{}, error)
 }
 
 type CronService interface {
@@ -1050,11 +1059,11 @@ type BrowserFetchTool struct {
 func (t *BrowserFetchTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "browser_fetch",
-		Description: "Navigate to a URL and get the page content",
+		Description: "Navigate to a URL in a persistent browser tab and return the page text, links, scripts, iframes, and meta tags. The browser executes JavaScript fully (it is a real Chrome instance), so JS-rendered content IS available. Returns structured sections: visible text, then --- Links ---, --- Scripts ---, --- Iframes ---, and --- Meta ---.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"session_id": {"type": "string", "description": "Session ID"},
+				"session_id": {"type": "string", "description": "A persistent browser tab ID. IMPORTANT: Each session_id maps to a browser tab that persists across calls. Reuse the SAME session_id to keep page state (cookies, navigation history, loaded content). Using a new session_id opens a blank tab. Example: use 'gaja' for all calls related to browsing the Gaja website."},
 				"url": {"type": "string", "description": "URL to navigate to"}
 			},
 			"required": ["session_id", "url"]
@@ -1088,11 +1097,11 @@ type BrowserScreenshotTool struct {
 func (t *BrowserScreenshotTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "browser_screenshot",
-		Description: "Take a screenshot of the current page",
+		Description: "Take a full-page screenshot of the current page in an existing browser session. The screenshot is saved to disk and can be shared with the user via send_file.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"session_id": {"type": "string", "description": "Session ID"}
+				"session_id": {"type": "string", "description": "The session_id of an EXISTING browser tab (previously opened via browser_fetch). IMPORTANT: You must use the same session_id that was used in browser_fetch — using a different session_id will screenshot a blank page."}
 			},
 			"required": ["session_id"]
 		}`),
@@ -1109,9 +1118,7 @@ func (t *BrowserScreenshotTool) Execute(ctx context.Context, params map[string]i
 		return nil, err
 	}
 
-	// Best-effort: persist the screenshot to disk so the agent can send it back
-	// to the user via send_file. We write under a deterministic workspace path
-	// that tools and dashboards can discover later.
+	// Best-effort: persist the screenshot to disk for debugging/dashboards.
 	var filePath string
 	if t.Tools.Filesystem != nil {
 		ts := time.Now().UTC().Format("20060102-150405")
@@ -1125,19 +1132,13 @@ func (t *BrowserScreenshotTool) Execute(ctx context.Context, params map[string]i
 		}
 	}
 
-	// Return only metadata and file_path; do NOT include the raw base64 screenshot.
-	// Full-page PNGs can be several MB; including them in the tool result causes
-	// oversized requests to Ollama and 500 Internal Server Error. The agent can
-	// use send_file with file_path to share the image with the user.
 	result := map[string]interface{}{
 		"session_id": sessionID,
 		"bytes":      len(data),
+		"message":    "Screenshot captured. Do NOT send this to the user unless they explicitly asked for a screenshot or visual proof.",
 	}
 	if filePath != "" {
 		result["file_path"] = filePath
-		result["message"] = "Screenshot saved. Use send_file with file_path to share it with the user."
-	} else {
-		result["message"] = "Screenshot taken but could not be saved to workspace (no filesystem). Image data omitted to avoid oversized response."
 	}
 
 	return json.Marshal(result)
@@ -1150,12 +1151,12 @@ type BrowserClickTool struct {
 func (t *BrowserClickTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "browser_click",
-		Description: "Click a DOM element by CSS selector",
+		Description: "Click a DOM element by CSS selector in an existing browser session.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"session_id": {"type": "string"},
-				"selector": {"type": "string"}
+				"session_id": {"type": "string", "description": "The session_id of an existing browser tab. Must match the session_id used in browser_fetch."},
+				"selector": {"type": "string", "description": "CSS selector for the element to click (e.g. 'button.reserve', '#submit', 'a[href*=booking]')"}
 			},
 			"required": ["session_id", "selector"]
 		}`),
@@ -1181,13 +1182,13 @@ type BrowserFillInputTool struct {
 func (t *BrowserFillInputTool) Definition() ToolDefinition {
 	return ToolDefinition{
 		Name:        "browser_fill_input",
-		Description: "Fill a form input field",
+		Description: "Fill a form input field by CSS selector in an existing browser session.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"session_id": {"type": "string", "description": "Session ID"},
-				"selector": {"type": "string", "description": "CSS selector for input"},
-				"text": {"type": "string", "description": "Text to fill"}
+				"session_id": {"type": "string", "description": "The session_id of an existing browser tab. Must match the session_id used in browser_fetch."},
+				"selector": {"type": "string", "description": "CSS selector for the input element (e.g. '#email', 'input[name=phone]', '.date-picker input')"},
+				"text": {"type": "string", "description": "Text to fill into the input field"}
 			},
 			"required": ["session_id", "selector", "text"]
 		}`),
@@ -1209,6 +1210,141 @@ func (t *BrowserFillInputTool) Execute(ctx context.Context, params map[string]in
 	}
 
 	return json.RawMessage(`{"status": "filled"}`), nil
+}
+
+type BrowserEvalTool struct {
+	Tools InternalTools
+}
+
+func (t *BrowserEvalTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name:        "browser_eval",
+		Description: "Execute JavaScript in an existing browser page and return the result. Useful for inspecting the DOM, extracting attributes, reading form state, or advanced interactions. The browser is a real Chrome instance with full JS support.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"session_id": {"type": "string", "description": "The session_id of an existing browser tab. Must match the session_id used in browser_fetch."},
+				"script": {"type": "string", "description": "JavaScript code to evaluate in the page context. Must return a value (string, number, boolean, or JSON-serialisable object). Example: document.querySelector('a[href*=zenchef]').href"}
+			},
+			"required": ["session_id", "script"]
+		}`),
+	}
+}
+
+func (t *BrowserEvalTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	sessionID, _ := params["session_id"].(string)
+	script, _ := params["script"].(string)
+
+	if sessionID == "" || script == "" {
+		return nil, fmt.Errorf("session_id and script are required")
+	}
+
+	// Wrap in an IIFE so const/let declarations don't collide across repeated
+	// eval calls in the same page context. The model often re-declares
+	// variables (e.g. "const days = ...") which causes SyntaxError without this.
+	wrapped := "(() => {\n" + script + "\n})()"
+
+	result, err := t.Tools.Browser.Eval(ctx, sessionID, wrapped)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"result": result,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// WebSearchTool — search the web via DuckDuckGo HTML (no CAPTCHA)
+// ---------------------------------------------------------------------------
+
+type WebSearchTool struct{}
+
+func (t *WebSearchTool) Definition() ToolDefinition {
+	return ToolDefinition{
+		Name:        "web_search",
+		Description: "Search the web using DuckDuckGo. Returns titles, URLs, and snippets for the top results. Use this instead of navigating to Google via the browser — Google will CAPTCHA you. This tool does not require a browser session.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"query": {"type": "string", "description": "The search query"}
+			},
+			"required": ["query"]
+		}`),
+	}
+}
+
+var ddgResultRe = regexp.MustCompile(`<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>(.*?)</a>`)
+var ddgSnippetRe = regexp.MustCompile(`<a class="result__snippet"[^>]*>(.*?)</a>`)
+var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
+
+func (t *WebSearchTool) Execute(ctx context.Context, params map[string]interface{}) (json.RawMessage, error) {
+	query, _ := params["query"].(string)
+	if query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+
+	ddgURL := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
+	req, err := http.NewRequestWithContext(ctx, "GET", ddgURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading search results: %w", err)
+	}
+	html := string(body)
+
+	// Parse results from DuckDuckGo HTML response.
+	linkMatches := ddgResultRe.FindAllStringSubmatch(html, 10)
+	snippetMatches := ddgSnippetRe.FindAllStringSubmatch(html, 10)
+
+	type searchResult struct {
+		Title   string `json:"title"`
+		URL     string `json:"url"`
+		Snippet string `json:"snippet"`
+	}
+	var results []searchResult
+	for i, m := range linkMatches {
+		title := htmlTagRe.ReplaceAllString(m[2], "")
+		rawURL := m[1]
+		// DuckDuckGo wraps URLs in a redirect; extract the actual URL.
+		if u, err := url.Parse(rawURL); err == nil {
+			if actual := u.Query().Get("uddg"); actual != "" {
+				rawURL = actual
+			}
+		}
+		snippet := ""
+		if i < len(snippetMatches) {
+			snippet = htmlTagRe.ReplaceAllString(snippetMatches[i][1], "")
+		}
+		results = append(results, searchResult{
+			Title:   strings.TrimSpace(title),
+			URL:     rawURL,
+			Snippet: strings.TrimSpace(snippet),
+		})
+	}
+
+	if len(results) == 0 {
+		return json.Marshal(map[string]interface{}{
+			"query":   query,
+			"results": []interface{}{},
+			"message": "No results found.",
+		})
+	}
+
+	return json.Marshal(map[string]interface{}{
+		"query":   query,
+		"results": results,
+	})
 }
 
 type SubAgentSpawnTool struct {
@@ -1845,6 +1981,7 @@ func CapabilityForTool(name string) string {
 	m := map[string]string{
 		"browser_fetch": "browser", "browser_screenshot": "browser",
 		"browser_click": "browser", "browser_fill_input": "browser",
+		"browser_eval": "browser", "web_search": "browser",
 		"terminal_exec": "terminal", "terminal_spawn": "terminal",
 		"terminal_list_processes": "terminal", "terminal_get_output": "terminal",
 		"add_memory": "memory", "search_memory": "memory",
@@ -1873,7 +2010,7 @@ func BuiltinToolNames() []string {
 		"add_relation", "delete_relation", "update_relation",
 		"add_user_relation",
 		"schedule_cron",
-		"browser_fetch", "browser_screenshot", "browser_click", "browser_fill_input",
+		"browser_fetch", "browser_screenshot", "browser_click", "browser_fill_input", "browser_eval", "web_search",
 		"subagent_spawn", "task_add", "task_done", "task_list",
 		"read_file", "write_file", "edit_file", "list_content",
 		"list_conversations", "get_conversation_messages",
@@ -1899,6 +2036,8 @@ func RegisterAllInternalTools(reg *ToolRegistry, tools InternalTools) {
 	reg.RegisterInternal("browser_screenshot", &BrowserScreenshotTool{Tools: tools})
 	reg.RegisterInternal("browser_click", &BrowserClickTool{Tools: tools})
 	reg.RegisterInternal("browser_fill_input", &BrowserFillInputTool{Tools: tools})
+	reg.RegisterInternal("browser_eval", &BrowserEvalTool{Tools: tools})
+	reg.RegisterInternal("web_search", &WebSearchTool{})
 	reg.RegisterInternal("subagent_spawn", &SubAgentSpawnTool{Tools: tools})
 	reg.RegisterInternal("task_add", &TaskAddTool{Tools: tools})
 	reg.RegisterInternal("task_done", &TaskDoneTool{Tools: tools})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/chromedp/chromedp"
 	"github.com/neirth/openlobster/internal/domain/ports"
@@ -30,7 +31,9 @@ func NewChromeDPAdapter(config ChromeDPConfig) *ChromeDPAdapter {
 	}
 
 	if config.Headless {
-		opts = append(opts, chromedp.Headless)
+		// Use Chrome's new headless mode ("headless=new") which behaves more like
+		// a real browser and is harder to detect than the legacy headless mode.
+		opts = append(opts, chromedp.Flag("headless", "new"))
 	}
 
 	// Required for containerized and restricted environments (Docker, CI, rootless).
@@ -39,6 +42,17 @@ func NewChromeDPAdapter(config ChromeDPConfig) *ChromeDPAdapter {
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
 	)
+
+	// Stealth: remove the AutomationControlled feature flag that sets
+	// navigator.webdriver = true, which is the primary signal used by
+	// Google, Cloudflare, and other bot-detection systems.
+	opts = append(opts,
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+	)
+
+	if config.UserAgent != "" {
+		opts = append(opts, chromedp.UserAgent(config.UserAgent))
+	}
 
 	if config.WindowSize != "" {
 		opts = append(opts, chromedp.WindowSize(parseWindowSize(config.WindowSize)))
@@ -101,18 +115,21 @@ type ChromePage struct {
 
 func (p *ChromePage) Navigate(ctx context.Context, url string) error {
 	p.url = url
-	var err error
-	p.title, err = p.getTitle(ctx, url)
-	return err
-}
 
-func (p *ChromePage) getTitle(ctx context.Context, url string) (string, error) {
+	// Inject stealth JS before navigation to mask webdriver property.
+	_ = chromedp.Run(p.ctx,
+		chromedp.Evaluate(`Object.defineProperty(navigator, 'webdriver', {get: () => false})`, nil),
+	)
+
 	var title string
 	err := chromedp.Run(p.ctx,
 		chromedp.Navigate(url),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(1*time.Second),
 		chromedp.Title(&title),
 	)
-	return title, err
+	p.title = title
+	return err
 }
 
 func (p *ChromePage) Screenshot(ctx context.Context) ([]byte, error) {

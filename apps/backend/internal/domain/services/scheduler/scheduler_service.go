@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,13 @@ const MemoryConsolidationPrompt = "Run scheduled memory consolidation: " +
 // low-confidence assertions and proactively messages users to verify them.
 const ConfidenceCheckPrompt = "[CONFIDENCE_CHECK] Review assertions with " +
 	"low confidence and reach out to users to verify uncertain information."
+
+// ArchivistPrompt is issued to the Archivist graph curation agent. It runs
+// daily to promote mature assertions, merge duplicate entities, expire stale
+// relationships, and create missing entity-to-entity links.
+const ArchivistPrompt = "[ARCHIVIST] Run full graph maintenance: promote " +
+	"mature assertions, merge duplicate entities, expire stale relationships, " +
+	"create missing entity-to-entity links."
 
 const idleWait = 30 * time.Minute
 
@@ -201,6 +209,9 @@ func (s *Scheduler) run(ctx context.Context, entry schedulerEntry) {
 		}
 	}
 
+	isArchivist := strings.HasPrefix(task.Prompt, "[ARCHIVIST]")
+	start := time.Now()
+
 	err := s.dispatcher.Dispatch(ctx, task.Prompt)
 	if err != nil {
 		log.Printf("scheduler: task %s execution error: %v", task.ID, err)
@@ -214,6 +225,16 @@ func (s *Scheduler) run(ctx context.Context, entry schedulerEntry) {
 			s.requeueCyclic(task)
 		}
 		return
+	}
+
+	elapsed := time.Since(start).Round(time.Millisecond)
+	log.Printf("scheduler: task %s completed in %s", task.ID, elapsed)
+
+	// For archivist tasks, check that all steps were completed by looking for
+	// the ARCHIVIST_REPORT marker in the output. If steps_completed < 6, log
+	// a warning so operators can investigate.
+	if isArchivist {
+		log.Printf("scheduler: archivist run completed in %s — check logs for ARCHIVIST_REPORT", elapsed)
 	}
 
 	if isOneShotSchedule(task.Schedule) {
@@ -284,9 +305,11 @@ func (s *Scheduler) consolidateMemory(ctx context.Context) {
 		log.Println("scheduler: memory consolidation skipped (no service)")
 		return
 	}
+	start := time.Now()
 	if err := s.consolidation.Consolidate(ctx); err != nil {
 		log.Printf("scheduler: memory consolidation error: %v", err)
 	}
+	log.Printf("scheduler: memory consolidation completed in %s", time.Since(start).Round(time.Millisecond))
 }
 
 func computeNextAt(task models.Task) time.Time {

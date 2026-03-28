@@ -105,17 +105,41 @@ are known conflict zones. For each one the correct resolution is described.
 - **Risk**: upstream may reset `maxToolRounds` to 5, or remove the `!isLoopback`
   guard on `injectMemoryTurn`, or remove the `stopReason="length"` fix.
 - **Resolution**:
-  - `maxToolRounds` must stay at **20**.
+  - `maxToolRounds` must stay at **40**. Complex browser interactions (booking
+    flows, multi-step forms) easily exceed 20 rounds.
   - `injectMemoryTurn` must be guarded with `if !isLoopback`.
   - The `stopReason == "length" && hasToolCalls` branch must remain.
-  - The `role == "tool"` branch must **NOT** persist to DB and must **NOT** call
-    `h.messageRepo.Save()`. `models.Message` has no `ToolCallID` field; saving tool
-    results without it causes Anthropic/OpenRouter to reject the conversation history
-    replay with `tool_use_id: String should match pattern '^[a-zA-Z0-9_-]+'`.
-    Only publish the event bus event so the UI shows live tool activity.
   - Keep `AIProviderOverride ports.AIProviderPort` in `HandleMessageInput`.
   - Keep the `activeProvider`/runner-copy blocks that use the override for
     compaction and `runAgenticLoop`.
+  - The compaction threshold must use `activeProvider.GetContextWindow()`, **NOT**
+    `activeProvider.GetMaxTokens()`. `GetMaxTokens()` returns max *output* tokens
+    (4096), causing compaction to fire after ~2,800 tokens of conversation — far
+    too aggressive. `GetContextWindow()` returns the model's full context (200k for
+    Claude), so compaction triggers at ~140k tokens as intended.
+  - The system prompt tool-use instructions (around line 958) must tell the agent to
+    work **silently** — no narrating tool calls, no sharing intermediate screenshots,
+    only message the user with final results or when input is needed. Upstream's
+    default instructions force acknowledgement before and after every tool call which
+    makes the agent extremely verbose. Keep our concise version.
+  - Keep the **Browser Playbooks** system prompt section. It instructs the agent to
+    look up `Story` nodes with `category="playbook"` (keyed as
+    `playbook:<domain>:<task>`) before starting multi-step browser tasks, and to
+    save successful sequences as playbooks after completion. This uses existing
+    entity infrastructure — no new node types or tools required.
+  - In `saveIntermediate`, the `SendMessage` call must be gated with `!hasToolCalls`
+    so intermediate assistant messages paired with tool calls are NOT forwarded to the
+    channel. Only final answers (no tool calls) should be sent to the user. Without
+    this, the agent narrates every tool call in real-time even if the system prompt
+    says to be silent.
+  - When the tool round limit is exhausted, inject a `[SYSTEM]` user message asking
+    the model to summarise progress and tell the user to say "continue" to resume.
+    The synthesis call must have a `context.WithTimeout` (3 min) and error logging.
+    Without this, the agent silently stops responding mid-task.
+  - `dispatchToolCall` must wrap `toolRegistry.Dispatch()` with a 2-minute
+    `context.WithTimeout`. Chromedp actions (WaitVisible, Click, etc.) can hang
+    indefinitely if a selector doesn't exist on the page, blocking the entire
+    agentic loop with no error or log output.
 
 ### 7. `schema/config.graphql` and `apps/backend/internal/application/graphql/generated/`
 - **Risk**: upstream may not have the Mattermost fields in `ChannelSecretsConfig`
@@ -196,14 +220,53 @@ are known conflict zones. For each one the correct resolution is described.
 - **Resolution**: keep `BackgroundAIProvider ports.AIProviderPort` field.
 
 ### 16. `apps/backend/cmd/openlobster/serve/services.go`
-- **Risk**: upstream may change how `CompactionSvc` or `AIProvider` are wired.
+- **Risk**: upstream may change how `CompactionSvc` or `AIProvider` are wired,
+  or reset `ChromeDPConfig` to defaults.
 - **Resolution**: keep the `BuildBackgroundFromConfig` call, the fallback logic,
   and `BackgroundAIProvider` being passed to `CompactionSvc`.
+  Keep the `ChromeDPConfig` with `Headless: true` and a realistic desktop
+  `UserAgent` string — without it the headless browser is trivially detected by
+  bot-detection systems (Google, Cloudflare, etc.).
 
 ### 17. `apps/backend/internal/domain/services/message_compaction/message_compaction_service.go`
 - **Risk**: upstream may change `ThresholdRatio` default.
 - **Resolution**: keep `ThresholdRatio: 0.70` (was `0.85` upstream). Lower threshold
   triggers compaction earlier, reducing per-request context size.
+
+### 19. `apps/backend/internal/domain/services/mcp/internal_tools.go`
+- **Risk**: upstream may add or modify browser tools, change `browser_fetch`
+  extraction JS, or reset the `browser_screenshot` result message.
+- **Resolution**: this file has significant additions on our branch. Keep:
+  - `browser_fetch` uses comprehensive JS extraction (text + links + scripts +
+    iframes + meta), not just `document.documentElement.innerText`.
+  - `browser_eval` tool — executes arbitrary JS in an existing browser session,
+    IIFE-wrapped in `Execute()` to prevent `const`/`let` redeclaration errors.
+  - `BrowserService` interface includes `Eval(ctx, sessionID, script)`.
+  - `WebSearchTool` — uses DuckDuckGo HTML endpoint (`html.duckduckgo.com`) to
+    bypass Google/Cloudflare CAPTCHAs. Registered as `web_search` under the
+    `"browser"` capability in `CapabilityForTool()`, `BuiltinToolNames()`, and
+    `RegisterAllInternalTools()`.
+  - `browser_screenshot` result message says "Only share with the user via
+    send_file if they asked for it or you need them to verify something visual."
+    — upstream's version tells the agent to always share screenshots.
+  - All browser tool `session_id` descriptions emphasize reusing the same
+    session_id across calls to maintain page state.
+  If upstream adds new browser tools, register them with the same session_id
+  pattern and add to `CapabilityForTool`/`BuiltinToolNames`.
+
+### 20. `apps/backend/internal/infrastructure/adapters/browser/chromedp/adapter.go`
+- **Risk**: upstream may change `NewChromeDPAdapter` flags or `Navigate()` flow.
+- **Resolution**: keep all stealth flags in `NewChromeDPAdapter`:
+  - `chromedp.Flag("headless", "new")` (new headless mode, harder to detect)
+  - `chromedp.Flag("disable-blink-features", "AutomationControlled")` (removes
+    `navigator.webdriver = true`)
+  - `chromedp.Flag("no-sandbox", true)`, `disable-dev-shm-usage`, `disable-gpu`
+  - `chromedp.UserAgent(...)` support via `ChromeDPConfig.UserAgent`
+  Keep `Navigate()` stealth JS injection (`Object.defineProperty(navigator,
+  'webdriver', {get: () => false})`) before each navigation, and the
+  `WaitReady("body")` + `Sleep(1*time.Second)` post-navigation wait.
+  Without these, Google, Cloudflare, and similar bot-detection systems block
+  the headless browser immediately.
 
 ### Rebase procedure
 ```bash

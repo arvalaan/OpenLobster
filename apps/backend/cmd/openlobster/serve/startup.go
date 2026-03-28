@@ -35,6 +35,14 @@ func (a *App) seedSystemTasks(ctx context.Context) {
 			domainservices.ConfidenceCheckPrompt,
 			"0 10 * * *",
 		)
+
+		// Archivist: daily at 04:00 — promotes mature assertions, merges
+		// duplicate entities, expires stale relationships, creates missing
+		// entity-to-entity links. Runs after consolidation to clean up.
+		a.seedOrUpdateSystemTask(ctx,
+			domainservices.ArchivistPrompt,
+			"0 4 * * *",
+		)
 	}
 }
 

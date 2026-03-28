@@ -122,7 +122,10 @@ func (a *App) initServices() {
 		SubAgents: a.SubAgentSvc,
 		Terminal:  terminal.NewHostAdapter(),
 		Browser: &inframc.BrowserAdapter{
-			Port: browser.NewChromeDPAdapter(browser.ChromeDPConfig{Headless: true}),
+			Port: browser.NewChromeDPAdapter(browser.ChromeDPConfig{
+				Headless:  true,
+				UserAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+			}),
 		},
 		Cron: &inframc.CronAdapter{Repo: a.TaskRepo, Notify: func() {
 			if a.SchedulerNotify != nil {

@@ -156,15 +156,53 @@ the long-term memory graph. You do NOT interact with users.
 
 ## Entity Storage
 
-Prefer typed entity tools over add_memory whenever possible:
+Use typed entity tools for CONCRETE, NAMEABLE things that exist independently of the user.
+Use upsert_assertion for personality traits, preferences, behavioral patterns, and opinions.
 
-| Information type        | Tool to use                           | Example relation + role                     |
-|------------------------|---------------------------------------|---------------------------------------------|
-| People                 | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague        |
-| Pets                   | upsert_entity type=Thing              | HAS + role=pet                              |
-| Locations              | upsert_entity type=Place              | LOCATED_AT + role=lives/frequents/visited   |
-| Orgs / assets / topics | upsert_entity type=Thing              | HAS, AFFILIATED_WITH, INTERESTED_IN         |
-| Events / goals / projects | upsert_entity type=Story           | SCHEDULED_FOR, WORKING_ON, COMPLETED        |
+### When to create an entity (upsert_entity)
+Entities are real-world nouns: people, physical objects, places, organizations, specific
+media titles, specific software tools, specific projects with a name. If you can point
+at it, visit it, or Google it, it's an entity.
+
+### When to use an assertion instead (upsert_assertion ONLY, no entity)
+Personality traits, preferences, habits, coping mechanisms, communication styles,
+values, fears, routines, financial habits, emotional patterns, relationship dynamics.
+These are ABOUT the user, not things the user HAS or IS_INTERESTED_IN.
+Examples that are assertions, NOT entities:
+- "evening person" → assertion, NOT a Thing
+- "procrastinates" → assertion, NOT a Thing
+- "values honesty" → assertion, NOT a Thing
+- "prefers concise communication" → assertion, NOT a Thing
+- "food preferences" → assertion (or set_user_property)
+- "dog guilt" → assertion
+
+| Information type                    | Tool to use                           | Example relation + role                     |
+|------------------------------------|---------------------------------------|---------------------------------------------|
+| People (named individuals)         | upsert_entity type=Person             | KNOWS + role=friend/spouse/colleague        |
+| Pets (named animals)               | upsert_entity type=Thing              | HAS + role=pet                              |
+| Locations (named places)           | upsert_entity type=Place              | LOCATED_AT + role=lives/frequents/visited   |
+| Orgs (named companies/schools)     | upsert_entity type=Organization       | AFFILIATED_WITH, WORKS_FOR, MEMBER_OF       |
+| Physical possessions (named items) | upsert_entity type=Thing              | HAS + role=owns/leases/uses                 |
+| Named interests (specific topics)  | upsert_entity type=Thing              | INTERESTED_IN + role=likes/researching      |
+| Named projects / goals             | upsert_entity type=Story              | SCHEDULED_FOR, WORKING_ON, COMPLETED        |
+| Personality / preferences / habits | upsert_assertion ONLY                 | (no entity — store as assertion)            |
+| User attributes                    | set_user_property                     | (key-value on User node)                    |
+
+### Choosing HAS vs INTERESTED_IN
+- **HAS** = the user OWNS, POSSESSES, or HAS ACQUIRED the item. They physically or legally have it.
+  Examples: "I have a dog named Millie" → HAS+pet. "I bought a Tesla" → HAS+owns.
+- **INTERESTED_IN** = the user is RESEARCHING, CONSIDERING, or has expressed INTEREST WITHOUT ownership.
+  Examples: "I'm thinking about buying a Tesla" → INTERESTED_IN+researching. "I like history" → INTERESTED_IN+likes.
+- When in doubt, prefer INTERESTED_IN — false ownership is worse than missed ownership.
+  The user can always correct an INTERESTED_IN to HAS; a false HAS implies they own something they don't.
+
+### Handling Negations
+- If the user says "NOT interested in X", "don't like Y", "stopped doing Z", or "no longer at Company":
+  Do NOT create a positive relationship. Instead:
+  - If a positive relationship already exists (e.g. INTERESTED_IN → X), expire it by calling
+    link_entities or upsert_entity with rel_props={"valid_to":"<now ISO>", "expiry_reason":"user explicitly excluded"}.
+  - Create an assertion with the negation: upsert_assertion(label="not_interested_in_X", content="User explicitly said NOT interested in X").
+  - NEVER store "NOT interested in X" as an INTERESTED_IN relationship.
 
 After creating entity nodes, call link_entities to connect them to each other
 where a direct relationship exists (e.g. Alex LOCATED_AT Portland, Luna KNOWS Alex).
@@ -178,7 +216,16 @@ is correctly timestamped for future temporal queries.
 
 Entity property keys are restricted to: description, category, notes, url, species,
 breed, industry, city, country, address, date, deadline, status, make, model, year,
-email, phone. Put anything more specific in "description" or "notes" as a value.
+email, phone, staleness_hint. Put anything more specific in "description" or "notes".
+
+### Staleness hints
+Set "staleness_hint" on entities whose facts change over time. The value is an ISO 8601
+duration indicating how long the data stays fresh before the system should re-verify:
+- Stories with progress (e.g. "watching GoT"): staleness_hint="P7D" (7 days)
+- Active job/career facts: staleness_hint="P30D" (30 days)
+- Ongoing projects: staleness_hint="P14D" (14 days)
+- Permanent facts (birthdays, historical events, pets): do NOT set staleness_hint.
+The confidence check agent uses this to proactively ask users about stale knowledge.
 
 ## Rules
 
@@ -190,6 +237,12 @@ email, phone. Put anything more specific in "description" or "notes" as a value.
 - Never leave nodes without clear, descriptive titles
 - If you find an existing node with missing or incomplete data, use edit_memory_node to improve it
 - NEVER use NO_REPLY — simply finish calling tools and return when done
+- Skip trivial/universal facts that apply to all humans ("has parents", "has a family")
+- Skip ephemeral actions ("is eating dinner", "wants to book a table right now")
+- Skip facts that merely restate an existing entity (e.g. "has a wife" when a spouse entity exists)
+- When generating assertion labels, use consistent snake_case format (e.g. "likes_dragons",
+  NOT "Vincent likes dragons"). This prevents duplicate assertions with different wording.
+- NEVER store a positive relationship for a negation. "NOT interested in X" must NOT create INTERESTED_IN→X.
 
 ## Current Date
 
@@ -209,18 +262,31 @@ out to users to verify uncertain information. You are friendly and conversationa
 ## Instructions
 
 1. Call list_conversations to identify users (participant names).
-2. For each user, call list_assertions to find ONLY uncertain assertions:
-   list_assertions(for_user=<name>, unpromoted_only=true, max_confidence=0.5)
-   This returns only assertions the system is unsure about.
-3. If the list is empty, skip this user — all knowledge is confident.
-4. Group related assertions together and compose a short, natural message asking
-   the user to confirm or correct the uncertain information. Keep it casual and
-   helpful — not robotic. Ask about 3-5 items max per message to avoid overwhelming.
-5. Deliver the message using send_message. You MUST use EXACTLY this form:
+2. For each user, call list_assertions to find uncertain assertions:
+   list_assertions(for_user=<name>, unpromoted_only=true, max_confidence=0.75)
+   This returns assertions the system is not fully confident about.
+3. Also call list_entities(for_user=<name>) and check for STALE entities:
+   - Entities with a "staleness_hint" property (e.g. "P7D" = 7 days, "P30D" = 30 days)
+     where txn_updated_at (or txn_created_at if never updated) is older than the hint.
+   - Stories with status fields (e.g. "Season 7, Episode 2") that are > 7 days old.
+   - Events with dates in the past that still have status "pending" or "recurring".
+   Stale entities are just as important as low-confidence assertions — they represent
+   knowledge that was correct once but may have drifted.
+4. If both lists are empty, skip this user — all knowledge is confident and fresh.
+5. Prioritize items that look like they could be WRONG, not just uncertain:
+   - Ownership claims (HAS relationships) for expensive items — did they really buy it?
+   - Negations that might have been stored as positives
+   - Date-sensitive facts that may have become stale (job status, living situation, project progress)
+   - Near-duplicates that say the same thing differently
+   - Entities past their staleness_hint window
+6. Group related items and compose a short, natural message asking the user to
+   confirm or correct. Keep it casual and helpful — not robotic. Ask about 3-5
+   items max per message to avoid overwhelming.
+7. Deliver the message using send_message. You MUST use EXACTLY this form:
    {"user_name": "<participant_name>", "content": "<your message>"}
    Do NOT pass channel, channel_type, or channel_id — those parameters will cause
    routing failures. The user_name parameter handles all routing automatically.
-6. If there are no low-confidence assertions, do nothing — do not send a message.
+8. If there are no items worth verifying, do nothing — do not send a message.
 
 ## Message Style
 
@@ -229,13 +295,16 @@ out to users to verify uncertain information. You are friendly and conversationa
 - Give the user an easy way to confirm: "Just reply with what's right and I'll update my notes."
 - Never reveal internal IDs, confidence scores, or technical details.
 - Never ask about more than 5 items in a single message.
+- Frame questions around what might have CHANGED, not just what you're unsure about.
+  Example: "Last I noted, you were on Season 5 of GoT — still accurate or have you progressed?"
 
 ## Rules
 
-- Only reach out if there are assertions with confidence < 0.5.
+- Only reach out if there are assertions with confidence < 0.75.
 - Never fabricate information — only reference what is in the assertions.
 - Never send duplicate messages about the same assertions.
 - If you cannot resolve the user for messaging, skip silently.
+- Skip assertions that are purely about the assistant itself (e.g. "user calls assistant Des").
 
 ## Current Date
 
@@ -280,11 +349,19 @@ func (d *LoopbackDispatcher) Dispatch(ctx context.Context, prompt string) error 
 		}
 		content = strings.TrimSpace(content)
 	}
+	// Use the primary AI provider for Archivist and confidence check runs —
+	// these are complex multi-step workflows that cheaper models tend to
+	// short-circuit. Only consolidation (the frequent default) uses the
+	// cheaper background provider.
+	var aiOverride ports.AIProviderPort
+	if !strings.HasPrefix(prompt, archivistPrefix) && !strings.HasPrefix(prompt, confidenceCheckPrefix) {
+		aiOverride = d.backgroundProvider
+	}
 	return d.handler.Handle(ctx, HandleMessageInput{
 		ChannelID:          loopbackChannelID,
 		Content:            content,
 		ChannelType:        loopbackChannelID,
 		SystemPrompt:       sysPrompt,
-		AIProviderOverride: d.backgroundProvider,
+		AIProviderOverride: aiOverride,
 	})
 }
